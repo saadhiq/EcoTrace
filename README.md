@@ -4,7 +4,7 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: auth, role dashboards and the **resident flow** (household onboarding, bag QR codes, pickup scheduling with a live tracker) are live. Collector, warehouse and Gemini steps are next.
+> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) are live. Warehouse photos + Gemini classification are next.
 
 **Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
 
@@ -20,6 +20,17 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 | ![Resident dashboard](docs/screenshots/step2-dashboard.png) | ![Bag QR codes](docs/screenshots/step2-bags-qr.png) |
 
 Data model and rules: [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
+
+## Collector flow
+
+1. **Today** — pickups available in my zones plus my route, with a date switcher, the resident's phone and an *Open in Google Maps* directions link. Bag codes are never shown before the scan.
+2. **Pickup screen** — scan each bag's QR with the phone camera (or type the code); a checklist ticks off live with a green/red flash. Wrong bags, typos (caught by the code's check character) and repeat scans get clear messages. Demo accounts get a **Simulate scan** button per bag.
+3. **Complete**, **Complete with missing bags** (with a reason; unscanned bags go back to the resident) or **Mark missed** (resident not available).
+4. **Warehouse handover** — scan every bag from the van; when a pickup's last bag arrives it becomes *delivered*, and the resident's tracker moves **assigned → collected → delivered** live.
+
+| Today (collector) | Scanning on a phone | Resident tracker |
+|---|---|---|
+| ![Collector today](docs/screenshots/step3-collector-today.png) | ![Scan](docs/screenshots/step3-scan.png) | ![Delivered](docs/screenshots/step3-resident-tracker-delivered.png) |
 
 ## Live
 
@@ -48,6 +59,10 @@ Data model and rules: [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 | `POST /households` · `GET`/`PATCH /households/me` | resident | Onboarding + 5 starter bags; view/update household and consent |
 | `GET /bags/mine` · `POST /bags/request-more` | resident | List bags; issue 5 more (max 20 unused) |
 | `POST /pickups` · `GET /pickups/mine` · `POST /pickups/{id}/cancel` | resident | Schedule (validated), list, cancel |
+| `GET /collector/pickups?date=` · `GET /collector/pickups/{id}` | collector | Available in my zones + my route (no bag codes) |
+| `POST /collector/pickups/{id}/accept` · `/scan` · `/complete` · `/missed` | collector | Accept, scan a bag, complete (full/partial), missed |
+| `POST /collector/pickups/{id}/simulate-scan` | demo collector | Scan without a printed label |
+| `GET /collector/handover` · `POST /collector/handover/scan` | collector | Bags in my van; hand over at the warehouse |
 
 ![Login page](docs/screenshots/step1-login.png)
 

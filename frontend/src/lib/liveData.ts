@@ -12,7 +12,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { firestoreDb } from "@/lib/firebase";
-import type { Bag, Pickup, StatusEvent } from "@/lib/types";
+import type { Bag, Pickup, RouteStop, StatusEvent } from "@/lib/types";
 
 export type LiveState<T> =
   | { status: "loading" }
@@ -42,6 +42,23 @@ function toPickup(id: string, d: DocumentData): Pickup {
     collectorUid: d.collectorUid ?? null,
     statusHistory: toHistory(d.statusHistory),
     createdAt: toDate(d.createdAt),
+    missedReason: d.missedReason ?? null,
+    missingBagsReason: d.missingBagsReason ?? null,
+  };
+}
+
+function toRouteStop(pickupId: string, d: DocumentData): RouteStop {
+  return {
+    pickupId,
+    collectorUid: d.collectorUid,
+    date: d.date,
+    timeSlot: d.timeSlot,
+    status: d.status,
+    zone: d.zone,
+    householdName: d.householdName,
+    addressLine: d.addressLine,
+    bagCount: d.bagCount ?? 0,
+    scannedCount: d.scannedCount ?? 0,
   };
 }
 
@@ -57,13 +74,18 @@ function toBag(code: string, d: DocumentData): Bag {
   };
 }
 
-type Source = "pickups" | "bags";
+type Source = "pickups" | "bags" | "routes";
 
 /**
- * Live Firestore listener scoped to the signed-in resident. The query filters
- * on ownerUid/residentUid so it satisfies the security rules.
+ * Live Firestore listener scoped to the signed-in user. Every query filters on
+ * the caller's uid (ownerUid / residentUid / collectorUid) so the rules allow it.
  */
-function useLive<T>(source: Source, uid: string, map: (id: string, d: DocumentData) => T): LiveState<T> {
+function useLive<T>(
+  source: Source,
+  uid: string,
+  map: (id: string, d: DocumentData) => T,
+  day?: string,
+): LiveState<T> {
   const [state, setState] = useState<LiveState<T>>({ status: "loading" });
 
   useEffect(() => {
@@ -71,7 +93,9 @@ function useLive<T>(source: Source, uid: string, map: (id: string, d: DocumentDa
     const q =
       source === "pickups"
         ? query(collection(db, "pickups"), where("residentUid", "==", uid), orderBy("date", "desc"))
-        : query(collection(db, "bags"), where("ownerUid", "==", uid), orderBy("issuedAt", "asc"));
+        : source === "bags"
+          ? query(collection(db, "bags"), where("ownerUid", "==", uid), orderBy("issuedAt", "asc"))
+          : query(collection(db, "routes"), where("collectorUid", "==", uid), where("date", "==", day ?? ""));
     return onSnapshot(
       q,
       (snap) => setState({ status: "ready", items: snap.docs.map((doc) => map(doc.id, doc.data())) }),
@@ -79,7 +103,7 @@ function useLive<T>(source: Source, uid: string, map: (id: string, d: DocumentDa
     );
     // `map` is a module-level function; re-subscribe only when the query changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, uid]);
+  }, [source, uid, day]);
 
   return state;
 }
@@ -90,4 +114,9 @@ export function useMyPickups(uid: string): LiveState<Pickup> {
 
 export function useMyBags(uid: string): LiveState<Bag> {
   return useLive("bags", uid, toBag);
+}
+
+/** Collector: live code-free mirror of my assigned pickups on `day`. */
+export function useMyRoute(uid: string, day: string): LiveState<RouteStop> {
+  return useLive("routes", uid, toRouteStop, day);
 }

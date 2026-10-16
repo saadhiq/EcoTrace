@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from app import services
-from app.clock import Clock, local_today
+from app.clock import COLOMBO, Clock, local_today
 from app.identity import IdentityAdmin
 from app.models import CANCELLABLE_PICKUP_STATUSES, BagStatus, PickupStatus, Role, TimeSlot
 from app.store import DataStore
+from app.transitions import INACTIVE_PICKUP_STATUSES
 from app.users import UserStore
 
 
@@ -25,9 +26,18 @@ DEMO_ACCOUNTS: dict[Role, DemoAccount] = {
     Role.ADMIN: DemoAccount("demo-admin", "demo-admin@ecotrace.app", "Demo Admin"),
 }
 
+DEMO_UIDS = frozenset(account.uid for account in DEMO_ACCOUNTS.values())
+# The demo collector covers the demo resident's zone plus two neighbours.
+DEMO_COLLECTOR_ZONES = ["colombo-07", "colombo-03", "colombo-05"]
+DEMO_COLLECTOR_BAGS = 2
+
 DEMO_MIN_BAGS = 10
 DEMO_MIN_ISSUED = 5
 SEED = "seed"
+
+
+def is_demo_uid(uid: str) -> bool:
+    return uid in DEMO_UIDS
 
 
 def ensure_demo_user(identity: IdentityAdmin, users: UserStore, role: Role) -> str:
@@ -73,7 +83,7 @@ def ensure_demo_resident_data(store: DataStore, clock: Clock) -> None:
 
     pickups = store.list_pickups(uid)
     first, _ = services.pickup_date_window(clock)
-    taken = {p.date for p in pickups if p.status != PickupStatus.CANCELLED}
+    taken = {p.date for p in pickups if p.status not in INACTIVE_PICKUP_STATUSES}
 
     def free_date(offset: int):  # noqa: ANN202
         for days in range(offset, services.MAX_DAYS_AHEAD + 1):
@@ -113,3 +123,36 @@ def ensure_demo_resident_data(store: DataStore, clock: Clock) -> None:
             by=SEED,
         )
         services.cancel_pickup(store, clock, uid, pickup.id, by=SEED)
+
+
+def ensure_demo_collector_data(store: DataStore, users: UserStore, clock: Clock) -> str | None:
+    """Give the shared demo collector its zones and something to collect today.
+
+    Bounded: creates at most ONE pickup per call, and only when no requested
+    pickup exists today in the collector's zones. Returns the new pickup id.
+    """
+    collector = DEMO_ACCOUNTS[Role.COLLECTOR].uid
+    users.set_zones(collector, DEMO_COLLECTOR_ZONES)
+
+    today = local_today(clock)
+    if store.list_requested_pickups(DEMO_COLLECTOR_ZONES, today.isoformat()):
+        return None
+
+    ensure_demo_resident_data(store, clock)
+    resident = DEMO_ACCOUNTS[Role.RESIDENT].uid
+    household = store.get_household(resident)
+    assert household is not None
+    fresh = services.issue_bags(store, clock, household, DEMO_COLLECTOR_BAGS, by=SEED)
+    hour = clock.now().astimezone(COLOMBO).hour
+    pickup = services.schedule_pickup(
+        store,
+        clock,
+        resident,
+        pickup_date=today,
+        time_slot=TimeSlot.MORNING if hour < 12 else TimeSlot.AFTERNOON,
+        bag_codes=[bag.code for bag in fresh],
+        notes="Demo pickup: bags are at the front gate.",
+        by=SEED,
+        demo_override=True,
+    )
+    return pickup.id

@@ -15,7 +15,7 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Region | `asia-south1` |
 | Cloud Run service | `ecotrace-api` → https://ecotrace-api-frl7lolcea-el.a.run.app |
 | Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; custom role `projects/ecotrace-9e406/roles/ecotraceTokenSigner` (only `iam.serviceAccounts.signBlob`) bound on **itself only** for custom-token signing. Grant new roles per step, least privilege, with user approval. |
-| Firestore | `(default)`, Native mode, `asia-south1`; schema in `docs/DATA_MODEL.md`; rules: clients read only their own `users` / `households` / `bags` / `pickups`, no client writes |
+| Firestore | `(default)`, Native mode, `asia-south1`; schema + state machine in `docs/DATA_MODEL.md`; rules: clients read only their own `users` / `households` / `bags` / `pickups` (residents) and `routes` (collectors), no client writes |
 | Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
 | Firebase web app | `EcoTrace Web` — `1:55962094566:web:eff857d7171aac9606e427` |
 
@@ -33,18 +33,25 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 ## Backend structure & data rules
 
 - `app/models.py` (Pydantic models = Firestore doc shapes), `app/store.py` (`DataStore` interface + `FirestoreDataStore`), `app/services.py` (all business rules, raising `DomainError(status, detail)`), `app/routes/*.py` (thin), `app/deps.py` (`get_store`, `get_clock` — overridden in tests with `FakeDataStore` / `FixedClock`).
+- **All status changes go through `app/transitions.py`** (`advance_pickup` / `advance_bag`). Add new transitions there; never set `status` directly.
+- **Collectors never read `pickups` from the client** (bag codes would leak). Every collector-side pickup change also writes the `routes/{pickupId}` mirror in the same batch (`collector._commit`, `services.route_stop`).
+- Collector logic: `app/collector.py` (views hide codes until scanned); routes: `app/routes/collector.py`. Demo-only endpoints check `is_demo_uid()` on the server.
 - **No Firestore transactions (demo scope).** Validate, then write all related docs in **one batch** (`DataStore.commit`). Uniqueness via `create()` (households by uid, bags by code).
 - Dates for pickups are Colombo calendar days (`app/clock.py`, fixed UTC+5:30); store `"YYYY-MM-DD"`.
 - `statusHistory` entries use `clock.now()` (Firestore forbids `SERVER_TIMESTAMP` inside arrays).
 - Zones live only in `app/zones.py` and are served by `GET /zones`; the frontend fetches them.
 - Bag codes: `app/bagcodes.py` (`ECO-XXXX-XC`, Luhn mod-N check char).
 - Demo resident data: `ensure_demo_resident_data()` in `app/demo.py` runs on every `POST /auth/demo/resident` and in the seed script; it only adds, never deletes.
+- Demo collector: `ensure_demo_collector_data()` sets its zones and, only when no requested pickup exists today in those zones, creates **one** for today from the demo resident with 2 fresh bags (`demo_override` skips the resident date rules).
 - When adding a client query, add a matching composite index to `firestore.indexes.json` if it filters + orders on different fields, and make sure the rules allow it.
 
 ## Frontend data conventions
 
 - **Writes** go through `src/lib/*` API helpers (`apiFetch` with the ID token). **Live reads** use Firestore `onSnapshot` hooks in `src/lib/liveData.ts`, always filtered on the caller's uid so the rules allow them.
-- Resident pages wrap content in `ResidentPage` (guard + household load + onboarding); other roles use `DashboardPage`.
+- Resident pages wrap content in `ResidentPage` (guard + household load + onboarding); collector pages in `CollectorPage`; other roles use `DashboardPage`.
+- Query-param pages (static export): call `useSearchParams()` inside a `<Suspense>` boundary (e.g. `/collector/pickup?id=`).
+- QR scanning: `components/collector/ScanPanel.tsx` (`@yudiel/react-qr-scanner`). Its zxing wasm is self-hosted at `/vendor/zxing_reader.wasm`, copied from node_modules by `npm run build`/`dev` (`scripts/copy-zxing-wasm.mjs`, git-ignored). Keep camera constraints soft (`ideal` only): the library's defaults require ≥640px height and fail on 480p cameras (`overconstrained`).
+- Effects that fetch must set state in the promise callback (lint rule `react-hooks/set-state-in-effect`).
 - Map API error `detail` codes to friendly text (`residentErrorMessage`).
 
 ## Frontend UI conventions

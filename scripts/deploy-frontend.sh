@@ -36,7 +36,9 @@ eval "$(node -e '
 echo "Building with NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL (Firebase project $NEXT_PUBLIC_FIREBASE_PROJECT_ID)"
 
 cd "$REPO_ROOT/frontend"
-npm ci --no-fund --no-audit
+# `npm install` (not `npm ci`): it honours package-lock.json but does not wipe
+# node_modules first, which fails on Windows when an editor holds a file lock.
+npm install --no-fund --no-audit
 npm run build
 
 cd "$REPO_ROOT"

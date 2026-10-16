@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field
 
 from app.auth import get_current_user, get_identity, get_user_store, require_registered
 from app.clock import Clock
-from app.demo import ensure_demo_resident_data, ensure_demo_user
+from app.demo import (
+    ensure_demo_collector_data,
+    ensure_demo_resident_data,
+    ensure_demo_user,
+    is_demo_uid,
+)
 from app.deps import get_clock, get_store
 from app.identity import IdentityAdmin
 from app.models import CurrentUser, Role, UserProfile
@@ -72,22 +77,27 @@ def register(
     return RegisterResponse(profile=profile, refreshToken=True)
 
 
-@router.get("/me", response_model=UserProfile)
+class MeResponse(UserProfile):
+    # True for the shared demo accounts (enables demo-only helpers in the UI).
+    isDemo: bool = False
+
+
+@router.get("/me", response_model=MeResponse)
 def me(
     user: CurrentUser = Depends(require_registered),
     users: UserStore = Depends(get_user_store),
-) -> UserProfile:
+) -> MeResponse:
     """Profile from Firestore; the role always comes from the verified token claim."""
     assert user.role is not None
     stored = users.get(user.uid)
     if stored is None:
-        return UserProfile(
+        stored = UserProfile(
             uid=user.uid,
             name=user.name or (user.email or "").split("@", 1)[0] or "User",
             email=user.email,
             role=user.role,
         )
-    return stored.model_copy(update={"role": user.role})
+    return MeResponse(**stored.model_copy(update={"role": user.role}).model_dump(), isDemo=is_demo_uid(user.uid))
 
 
 @router.post("/auth/demo/{role}", response_model=DemoTokenResponse)
@@ -109,5 +119,7 @@ def demo_sign_in(
     uid = ensure_demo_user(identity, users, demo_role)
     if demo_role == Role.RESIDENT:
         ensure_demo_resident_data(store, clock)
+    elif demo_role == Role.COLLECTOR:
+        ensure_demo_collector_data(store, users, clock)
     logger.info("demo sign-in role=%s client=%s", demo_role.value, client)
     return DemoTokenResponse(token=identity.create_custom_token(uid), role=demo_role)

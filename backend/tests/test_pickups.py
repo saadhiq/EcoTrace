@@ -242,16 +242,41 @@ def test_cancel_rejected_after_collection(
     assert detail(response) == "not_cancellable"
 
 
-def test_cancel_only_releases_bags_still_attached(
+def test_cancel_rejected_once_a_bag_is_scanned(
     client: TestClient, home: dict, store: FakeDataStore
 ) -> None:
     pickup = book(client, home).json()
     code = home["codes"][0]
-    # Simulate a bag that has already moved on (e.g. collected separately).
+    # A collector already scanned one bag: it's in the van, so no cancelling.
     store.bags[code] = store.bags[code].model_copy(update={"status": BagStatus.COLLECTED})
-    client.post(f"/pickups/{pickup['id']}/cancel", headers=home["headers"])
-    assert store.bags[code].status == BagStatus.COLLECTED
+    response = client.post(f"/pickups/{pickup['id']}/cancel", headers=home["headers"])
+    assert response.status_code == 409
+    assert detail(response) == "not_cancellable"
+    assert store.bags[home["codes"][1]].status == BagStatus.SCHEDULED
+
+
+def test_cancel_ignores_bags_already_released(
+    client: TestClient, home: dict, store: FakeDataStore
+) -> None:
+    pickup = book(client, home).json()
+    code = home["codes"][0]
+    # Bag detached from this pickup (e.g. re-used elsewhere): left untouched.
+    store.bags[code] = store.bags[code].model_copy(update={"pickupId": "other"})
+    assert client.post(f"/pickups/{pickup['id']}/cancel", headers=home["headers"]).status_code == 200
+    assert store.bags[code].pickupId == "other"
     assert store.bags[home["codes"][1]].status == BagStatus.ISSUED
+
+
+def test_missed_pickup_frees_the_date(client: TestClient, home: dict, store: FakeDataStore) -> None:
+    pickup = book(client, home).json()
+    store.pickups[pickup["id"]] = store.pickups[pickup["id"]].model_copy(
+        update={"status": PickupStatus.MISSED}
+    )
+    for code in home["codes"][:2]:
+        store.bags[code] = store.bags[code].model_copy(
+            update={"status": BagStatus.ISSUED, "pickupId": None}
+        )
+    assert book(client, home).status_code == 201
 
 
 def test_cannot_cancel_someone_elses_pickup(

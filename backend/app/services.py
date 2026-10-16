@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 from app.bagcodes import generate_code
 from app.clock import Clock, local_today
+from app.errors import DomainError
 from app.models import (
     CANCELLABLE_PICKUP_STATUSES,
     Bag,
@@ -12,11 +13,15 @@ from app.models import (
     Household,
     Pickup,
     PickupStatus,
+    RouteStop,
     StatusEvent,
     TimeSlot,
 )
 from app.store import DataStore
+from app.transitions import INACTIVE_PICKUP_STATUSES, advance_bag, advance_pickup
 from app.zones import ZONE_IDS
+
+__all__ = ["DomainError"]
 
 STARTER_BAGS = 5
 BAGS_PER_REQUEST = 5
@@ -24,15 +29,6 @@ MAX_UNUSED_BAGS = 20
 MAX_BAGS_PER_PICKUP = 5
 MAX_DAYS_AHEAD = 14
 _CODE_ATTEMPTS = 5
-
-
-class DomainError(Exception):
-    """A rule violation, mapped to an HTTP error by the API layer."""
-
-    def __init__(self, status: int, detail: str) -> None:
-        super().__init__(detail)
-        self.status = status
-        self.detail = detail
 
 
 def _require_zone(zone: str) -> None:
@@ -149,6 +145,31 @@ def pickup_date_window(clock: Clock) -> tuple[date, date]:
     return today + timedelta(days=1), today + timedelta(days=MAX_DAYS_AHEAD)
 
 
+def attached_bags(store: DataStore, pickup: Pickup) -> list[Bag]:
+    """The pickup's bags that still belong to it (released bags are excluded)."""
+    bags = store.get_bags(pickup.bagCodes)
+    return [bags[c] for c in pickup.bagCodes if c in bags and bags[c].pickupId == pickup.id]
+
+
+def route_stop(pickup: Pickup, household: Household | None, bags: list[Bag], clock: Clock) -> RouteStop:
+    """Code-free mirror of an assigned pickup for the collector's live route."""
+    assert pickup.collectorUid is not None
+    scanned = {BagStatus.COLLECTED, BagStatus.AT_WAREHOUSE, BagStatus.PROCESSED}
+    return RouteStop(
+        pickupId=pickup.id,
+        collectorUid=pickup.collectorUid,
+        date=pickup.date,
+        timeSlot=pickup.timeSlot,
+        status=pickup.status,
+        zone=pickup.zone,
+        householdName=household.name if household else "Household",
+        addressLine=household.addressLine if household else "",
+        bagCount=len(bags) if pickup.status != PickupStatus.REQUESTED else len(pickup.bagCodes),
+        scannedCount=sum(1 for b in bags if b.status in scanned),
+        updatedAt=clock.now(),
+    )
+
+
 def schedule_pickup(
     store: DataStore,
     clock: Clock,
@@ -159,11 +180,17 @@ def schedule_pickup(
     bag_codes: list[str],
     notes: str = "",
     by: str | None = None,
+    demo_override: bool = False,
 ) -> Pickup:
+    """Validate, then write the pickup and its bags in one batch.
+
+    `demo_override` (seed data only) skips the date window and the
+    one-pickup-per-date rule so demo collectors always have work today.
+    """
     household = get_household(store, uid)
 
     first, last = pickup_date_window(clock)
-    if not first <= pickup_date <= last:
+    if not demo_override and not first <= pickup_date <= last:
         raise DomainError(422, "date_out_of_range")
     if not 1 <= len(bag_codes) <= MAX_BAGS_PER_PICKUP:
         raise DomainError(422, "invalid_bag_count")
@@ -171,7 +198,10 @@ def schedule_pickup(
         raise DomainError(422, "duplicate_bags")
 
     day = pickup_date.isoformat()
-    if any(p.date == day and p.status != PickupStatus.CANCELLED for p in store.list_pickups(household.id)):
+    if not demo_override and any(
+        p.date == day and p.status not in INACTIVE_PICKUP_STATUSES
+        for p in store.list_pickups(household.id)
+    ):
         raise DomainError(409, "pickup_exists_for_date")
 
     bags = store.get_bags(bag_codes)
@@ -200,16 +230,7 @@ def schedule_pickup(
         createdAt=now,
     )
     updated_bags = [
-        bags[code].model_copy(
-            update={
-                "status": BagStatus.SCHEDULED,
-                "pickupId": pickup.id,
-                "statusHistory": [
-                    *bags[code].statusHistory,
-                    StatusEvent(status=BagStatus.SCHEDULED, at=now, by=actor),
-                ],
-            }
-        )
+        advance_bag(bags[code], BagStatus.SCHEDULED, by=actor, clock=clock, pickupId=pickup.id)
         for code in bag_codes
     ]
     store.commit([pickup], updated_bags)
@@ -220,41 +241,34 @@ def list_pickups(store: DataStore, uid: str) -> list[Pickup]:
     return store.list_pickups(get_household(store, uid).id)
 
 
+def release_bags(bags: list[Bag], *, by: str, clock: Clock) -> list[Bag]:
+    """Scheduled bags go back to `issued` (unattached) so they can be reused."""
+    return [
+        advance_bag(bag, BagStatus.ISSUED, by=by, clock=clock, pickupId=None)
+        for bag in bags
+        if bag.status == BagStatus.SCHEDULED
+    ]
+
+
 def cancel_pickup(
     store: DataStore, clock: Clock, uid: str, pickup_id: str, by: str | None = None
 ) -> Pickup:
-    """Cancel while requested/assigned; its bags go back to `issued`."""
+    """Cancel while requested/assigned and before any bag is scanned."""
     pickup = store.get_pickup(pickup_id)
     if pickup is None or pickup.residentUid != uid:
         raise DomainError(404, "pickup_not_found")
     if pickup.status not in CANCELLABLE_PICKUP_STATUSES:
         raise DomainError(409, "not_cancellable")
+    bags = attached_bags(store, pickup)
+    if any(b.status != BagStatus.SCHEDULED for b in bags):
+        # A collector has already scanned a bag: it is physically in the van.
+        raise DomainError(409, "not_cancellable")
 
     actor = by or uid
-    now = clock.now()
-    cancelled = pickup.model_copy(
-        update={
-            "status": PickupStatus.CANCELLED,
-            "statusHistory": [
-                *pickup.statusHistory,
-                StatusEvent(status=PickupStatus.CANCELLED, at=now, by=actor),
-            ],
-        }
-    )
-    released = [
-        bag.model_copy(
-            update={
-                "status": BagStatus.ISSUED,
-                "pickupId": None,
-                "statusHistory": [
-                    *bag.statusHistory,
-                    StatusEvent(status=BagStatus.ISSUED, at=now, by=actor),
-                ],
-            }
-        )
-        for bag in store.get_bags(pickup.bagCodes).values()
-        # Only bags still attached to this pickup.
-        if bag.pickupId == pickup.id and bag.status == BagStatus.SCHEDULED
-    ]
-    store.commit([cancelled], released)
+    cancelled = advance_pickup(pickup, PickupStatus.CANCELLED, by=actor, clock=clock)
+    released = release_bags(bags, by=actor, clock=clock)
+    routes = []
+    if cancelled.collectorUid:
+        routes.append(route_stop(cancelled, store.get_household(pickup.householdId), [], clock))
+    store.commit([cancelled], released, routes)
     return cancelled

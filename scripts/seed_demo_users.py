@@ -1,5 +1,6 @@
-"""Create or repair the four passwordless demo accounts and the demo
-resident's household data (idempotent, never deletes anything).
+"""Create or repair the four passwordless demo accounts, the demo resident's
+household data and the demo collector's zones + a pickup for today
+(idempotent and bounded, never deletes anything).
 
 Uses the same logic as POST /auth/demo/{role}. Runs with your Application
 Default Credentials (`gcloud auth application-default login`).
@@ -17,7 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "ecotrace-9e406")
 
 from app.clock import SystemClock  # noqa: E402
-from app.demo import DEMO_ACCOUNTS, ensure_demo_resident_data, ensure_demo_user  # noqa: E402
+from app.demo import (  # noqa: E402
+    DEMO_ACCOUNTS,
+    ensure_demo_collector_data,
+    ensure_demo_resident_data,
+    ensure_demo_user,
+)
 from app.identity import FirebaseIdentityAdmin  # noqa: E402
 from app.models import Role  # noqa: E402
 from app.store import FirestoreDataStore  # noqa: E402
@@ -35,7 +41,10 @@ def main() -> None:
         print(f"  {'repaired' if existed else 'created '} {account.uid:<15} role={role.value}")
 
     resident = DEMO_ACCOUNTS[Role.RESIDENT].uid
-    ensure_demo_resident_data(store, SystemClock())
+    clock = SystemClock()
+    ensure_demo_resident_data(store, clock)
+    created = ensure_demo_collector_data(store, users, clock)
+    print(f"  demo collector: {'new pickup ' + created if created else 'already has a pickup today'}")
     bags = store.list_bags(resident)
     pickups = store.list_pickups(resident)
     print(f"  demo household: {len(bags)} bags, pickups: "

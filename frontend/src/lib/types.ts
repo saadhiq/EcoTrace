@@ -17,7 +17,7 @@ export const BAG_STATUSES = ["issued", "scheduled", "collected", "at_warehouse",
 export type BagStatus = (typeof BAG_STATUSES)[number];
 
 export const PICKUP_STEPS = ["requested", "assigned", "collected", "delivered", "processed"] as const;
-export type PickupStatus = (typeof PICKUP_STEPS)[number] | "cancelled";
+export type PickupStatus = (typeof PICKUP_STEPS)[number] | "cancelled" | "missed";
 
 export const CANCELLABLE: PickupStatus[] = ["requested", "assigned"];
 
@@ -48,6 +48,22 @@ export type Pickup = {
   collectorUid: string | null;
   statusHistory: StatusEvent[];
   createdAt: Date | null;
+  missedReason: string | null;
+  missingBagsReason: string | null;
+};
+
+/** routes/{pickupId}: code-free mirror of a collector's assigned pickup. */
+export type RouteStop = {
+  pickupId: string;
+  collectorUid: string;
+  date: string;
+  timeSlot: TimeSlot;
+  status: PickupStatus;
+  zone: string;
+  householdName: string;
+  addressLine: string;
+  bagCount: number;
+  scannedCount: number;
 };
 
 export const STATUS_LABELS: Record<BagStatus | PickupStatus, string> = {
@@ -60,6 +76,7 @@ export const STATUS_LABELS: Record<BagStatus | PickupStatus, string> = {
   delivered: "At warehouse",
   processed: "Processed",
   cancelled: "Cancelled",
+  missed: "Missed",
 };
 
 export const SLOT_LABELS: Record<TimeSlot, string> = {

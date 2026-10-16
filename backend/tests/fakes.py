@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.identity import IdentityUser, InvalidTokenError
-from app.models import Bag, Household, Pickup, Role, UserProfile
+from app.models import Bag, Household, Pickup, PickupStatus, Role, RouteStop, UserProfile
 
 
 class FixedClock:
@@ -26,6 +26,7 @@ class FakeDataStore:
         self.households: dict[str, Household] = {}
         self.bags: dict[str, Bag] = {}
         self.pickups: dict[str, Pickup] = {}
+        self.routes: dict[str, RouteStop] = {}
         self.commits = 0
         self._ids = itertools.count(1)
         # Codes create_bags() should treat as already taken (collision tests).
@@ -39,6 +40,9 @@ class FakeDataStore:
 
     def get_household(self, household_id: str) -> Household | None:
         return self.households.get(household_id)
+
+    def get_households(self, household_ids: list[str]) -> dict[str, Household]:
+        return {h: self.households[h] for h in household_ids if h in self.households}
 
     def save_household(self, household: Household) -> None:
         self.households[household.id] = household
@@ -64,15 +68,35 @@ class FakeDataStore:
         pickups = [p for p in self.pickups.values() if p.householdId == household_id]
         return sorted(pickups, key=lambda p: (p.date, p.createdAt), reverse=True)
 
+    def list_requested_pickups(self, zones: list[str], day: str) -> list[Pickup]:
+        return [
+            p for p in self.pickups.values()
+            if p.zone in zones and p.date == day and p.status == PickupStatus.REQUESTED
+        ]
+
+    def list_collector_pickups(
+        self, collector_uid: str, *, day: str | None = None, status: PickupStatus | None = None
+    ) -> list[Pickup]:
+        return [
+            p for p in self.pickups.values()
+            if p.collectorUid == collector_uid
+            and (day is None or p.date == day)
+            and (status is None or p.status == status)
+        ]
+
     def new_pickup_id(self) -> str:
         return f"pickup-{next(self._ids)}"
 
-    def commit(self, pickups: list[Pickup], bags: list[Bag]) -> None:
+    def commit(
+        self, pickups: list[Pickup], bags: list[Bag], routes: list[RouteStop] | None = None
+    ) -> None:
         self.commits += 1
         for pickup in pickups:
             self.pickups[pickup.id] = pickup
         for bag in bags:
             self.bags[bag.code] = bag
+        for route in routes or []:
+            self.routes[route.pickupId] = route
 
 
 class FakeIdentity:
@@ -130,7 +154,11 @@ class FakeUserStore:
 
     def upsert(self, uid: str, name: str, email: str | None, role: Role) -> UserProfile:
         created = self.docs[uid].createdAt if uid in self.docs else datetime.now(UTC)
+        zones = self.docs[uid].zones if uid in self.docs else []
         self.docs[uid] = UserProfile(
-            uid=uid, name=name, email=email, role=role, createdAt=created
+            uid=uid, name=name, email=email, role=role, createdAt=created, zones=zones
         )
         return self.docs[uid]
+
+    def set_zones(self, uid: str, zones: list[str]) -> None:
+        self.docs[uid] = self.docs[uid].model_copy(update={"zones": list(zones)})

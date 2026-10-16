@@ -21,6 +21,7 @@ function PickupItem({ pickup, user }: { pickup: Pickup; user: User }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelled = pickup.status === "cancelled";
+  const ended = cancelled || pickup.status === "missed";
 
   async function onCancel() {
     if (!window.confirm(`Cancel the pickup on ${formatDay(pickup.date)}? Its bags will be freed up.`)) {
@@ -39,7 +40,7 @@ function PickupItem({ pickup, user }: { pickup: Pickup; user: User }) {
 
   return (
     <li
-      className={`${styles.pickup} ${cancelled ? styles.pickupCancelled : ""}`}
+      className={`${styles.pickup} ${ended ? styles.pickupCancelled : ""}`}
       data-testid="pickup"
       data-pickup-id={pickup.id}
       data-status={pickup.status}
@@ -51,7 +52,17 @@ function PickupItem({ pickup, user }: { pickup: Pickup; user: User }) {
         </div>
         <StatusBadge status={pickup.status} />
       </div>
-      {!cancelled && <ProgressTracker status={pickup.status} />}
+      {!ended && <ProgressTracker status={pickup.status} />}
+      {pickup.status === "missed" && (
+        <p className={styles.notes}>
+          The collector couldn&apos;t reach you
+          {pickup.missedReason ? `: ${pickup.missedReason.replace(/[.!\s]+$/, "")}` : ""}. Your bags are ready
+          to schedule again.
+        </p>
+      )}
+      {pickup.missingBagsReason && (
+        <p className={styles.notes}>Some bags weren&apos;t collected: {pickup.missingBagsReason}</p>
+      )}
       <div className={styles.chips}>
         {pickup.bagCodes.map((code) => (
           <span key={code} className={styles.chip}>

@@ -15,6 +15,10 @@ class UserStore(Protocol):
 
     def upsert(self, uid: str, name: str, email: str | None, role: Role) -> UserProfile: ...
 
+    def set_zones(self, uid: str, zones: list[str]) -> None:
+        """Collectors: the zones they cover."""
+        ...
+
 
 class FirestoreUserStore:
     def __init__(self) -> None:
@@ -35,3 +39,6 @@ class FirestoreUserStore:
         profile = self.get(uid)
         assert profile is not None
         return profile
+
+    def set_zones(self, uid: str, zones: list[str]) -> None:
+        self._collection.document(uid).set({"zones": zones}, merge=True)

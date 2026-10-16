@@ -30,6 +30,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Collectors read their own route mirror (code-free) for a live "My route".
+    // Requested pickups come only through the API.
+    match /routes/{pickupId} {
+      allow read: if signedIn() && resource.data.collectorUid == request.auth.uid;
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

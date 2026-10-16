@@ -31,6 +31,8 @@ class UserProfile(BaseModel):
     email: str | None = None
     role: Role
     createdAt: datetime | None = None
+    # Collectors only: the zones they cover.
+    zones: list[str] = Field(default_factory=list)
 
 
 # --- Resident flow ---
@@ -51,6 +53,7 @@ class PickupStatus(StrEnum):
     DELIVERED = "delivered"
     PROCESSED = "processed"
     CANCELLED = "cancelled"
+    MISSED = "missed"
 
 
 CANCELLABLE_PICKUP_STATUSES = {PickupStatus.REQUESTED, PickupStatus.ASSIGNED}
@@ -95,6 +98,8 @@ class Bag(BaseModel):
     ownerUid: str
     status: BagStatus
     pickupId: str | None = None
+    # Set when a collector scans the bag (powers the warehouse handover).
+    collectorUid: str | None = None
     issuedAt: datetime
     statusHistory: list[StatusEvent] = Field(default_factory=list)
 
@@ -114,6 +119,32 @@ class Pickup(BaseModel):
     collectorUid: str | None = None
     statusHistory: list[StatusEvent] = Field(default_factory=list)
     createdAt: datetime
+    assignedAt: datetime | None = None
+    collectedAt: datetime | None = None
+    deliveredAt: datetime | None = None
+    missedReason: str | None = None
+    # Partial completion: why some bags were not collected.
+    missingBagsReason: str | None = None
+
+
+class RouteStop(BaseModel):
+    """routes/{pickupId}: code-free mirror of an assigned pickup.
+
+    Lets a collector's browser listen live to their route (Firestore rules
+    can't hide fields, so pickups themselves would leak bag codes).
+    """
+
+    pickupId: str
+    collectorUid: str
+    date: str
+    timeSlot: TimeSlot
+    status: PickupStatus
+    zone: str
+    householdName: str
+    addressLine: str
+    bagCount: int
+    scannedCount: int
+    updatedAt: datetime
 
 
 def to_doc(model: BaseModel, id_field: str) -> dict[str, Any]:

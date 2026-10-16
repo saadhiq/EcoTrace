@@ -496,3 +496,8 @@
   width: 100%;
   height: auto;
 }
+
+.status-missed {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}

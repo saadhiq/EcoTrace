@@ -7,15 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import allowed_origins, demo_rate_limit
+from app.errors import DomainError
 from app.ratelimit import RateLimiter
-from app.routes import auth, resident
-from app.services import DomainError
+from app.routes import auth, collector, resident
 
 logging.basicConfig(level=logging.INFO)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="EcoTrace API", version="0.2.0")
+    app = FastAPI(title="EcoTrace API", version="0.3.0")
     app.state.demo_limiter = RateLimiter(limit=demo_rate_limit(), window_seconds=60)
     app.add_middleware(
         CORSMiddleware,
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(resident.router)
+    app.include_router(collector.router)
     return app
 
 

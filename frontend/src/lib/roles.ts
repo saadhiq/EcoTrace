@@ -25,4 +25,8 @@ export type Profile = {
   email: string | null;
   role: Role;
   createdAt: string | null;
+  /** Collectors: zones they cover. */
+  zones?: string[];
+  /** Shared demo account (enables demo-only helpers such as "Simulate scan"). */
+  isDemo?: boolean;
 };
