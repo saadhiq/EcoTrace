@@ -5,7 +5,7 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 ## Submission items
 
 - [ ] Public GitHub repo — https://github.com/saadhiq/EcoTrace
-- [ ] Deployed link (must stay up during judging): _TBD_
+- [x] Deployed link (must stay up during judging): https://ecotrace-9e406.web.app (API: https://ecotrace-api-frl7lolcea-el.a.run.app)
 - [ ] Demo video (3–4 min): _TBD_
 - [ ] Pitch deck: _TBD_
 - [ ] Performance / benchmark report (in deck + `docs/`)
@@ -43,13 +43,18 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 _Fill in as each piece is built._
 
 ### Firebase (Hosting, Auth)
-- _TBD_
+- **Hosting:** the Next.js frontend is built as a static export (`output: 'export'`) and served from Firebase Hosting at https://ecotrace-9e406.web.app. Deployed with `scripts/deploy-frontend.sh`.
+- **Auth:** _TBD_
 
 ### Firestore
-- _TBD_
+- Native-mode database `(default)` in `asia-south1`.
+- Security rules (`firestore.rules`) currently **deny all client access**; per-role rules come with auth.
 
 ### Cloud Run
-- FastAPI backend containerised (`backend/Dockerfile`), listens on `$PORT`. _Not yet deployed._
+- FastAPI backend service `ecotrace-api` in `asia-south1`, built from source by Cloud Build (`gcloud run deploy --source`), image stored in Artifact Registry.
+- Runs as a dedicated least-privilege service account `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` (no project roles yet).
+- Scales to zero (`min-instances 0`); CORS restricted to localhost + Firebase Hosting domains via the `ALLOWED_ORIGINS` env var.
+- The home page calls `/health` and shows "API: connected" (`docs/screenshots/00-home-api-connected.png`).
 
 ### Gemini (Vertex AI)
 - _TBD_
@@ -62,3 +67,4 @@ _Fill in as each piece is built._
 | Step | Description | Status |
 |---|---|---|
 | 0 | Monorepo scaffold: Next.js placeholder, FastAPI `/health` + Dockerfile, docs | ✅ |
+| 0b | First deployment: APIs enabled, runtime SA, Firestore (deny-all rules), Cloud Run `ecotrace-api` with CORS, Hosting static export showing API status, deploy scripts | ✅ |

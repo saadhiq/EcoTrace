@@ -1,3 +1,4 @@
+import ApiStatus from "@/components/ApiStatus";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -8,6 +9,9 @@ export default function Home() {
         Traceable household waste collection — from pickup to classification.
       </p>
       <p className={styles.status}>Coming soon.</p>
+      <div className={styles.api}>
+        <ApiStatus />
+      </div>
     </main>
   );
 }

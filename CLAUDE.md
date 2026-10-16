@@ -7,6 +7,19 @@ Guidance for Claude (and humans) working in this repo.
 **EcoTrace** is a traceable household waste-collection platform built for the Google Cloud **AI Builder Cup** hackathon.
 Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on Google Cloud, region **`asia-south1`**.
 
+## Google Cloud resources
+
+| Item | Value |
+|---|---|
+| Project ID / number | `ecotrace-9e406` / `55962094566` |
+| Region | `asia-south1` |
+| Cloud Run service | `ecotrace-api` → https://ecotrace-api-frl7lolcea-el.a.run.app |
+| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` (no project roles yet; grant per step) |
+| Firestore | `(default)`, Native mode, `asia-south1`; rules deny all client access |
+| Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
+
+Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins). Frontend build-time env: `NEXT_PUBLIC_API_URL`.
+
 ## Roles
 
 | Role | What they do |
@@ -55,6 +68,10 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 /backend           FastAPI service (app/, tests/, Dockerfile)
 /docs              Submission docs, architecture, benchmarks
 /docs/screenshots  Screenshots for the deck / README
+/scripts           deploy-backend.sh, deploy-frontend.sh
+firebase.json      Hosting (frontend/out) + Firestore rules/indexes config
+.firebaserc        Default Firebase project
+firestore.rules    Firestore security rules
 CLAUDE.md          This file
 README.md          Public project overview
 ```
@@ -88,3 +105,13 @@ uvicorn app.main:app --reload --port 8080         # GET http://localhost:8080/he
 pytest && ruff check .
 docker build -t ecotrace-backend . && docker run -p 8080:8080 ecotrace-backend
 ```
+
+## Deploy commands (bash / Git Bash, from repo root)
+
+```bash
+./scripts/deploy-backend.sh              # gcloud run deploy --source backend -> ecotrace-api
+./scripts/deploy-frontend.sh             # build static export with NEXT_PUBLIC_API_URL -> Firebase Hosting
+firebase deploy --only firestore:rules   # Firestore security rules
+```
+
+The frontend is a static export: no SSR, no API routes, no server-only Next.js features.

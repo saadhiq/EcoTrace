@@ -6,6 +6,11 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 
 > Status: early scaffold — no features yet.
 
+## Live
+
+- **Web app (Firebase Hosting):** https://ecotrace-9e406.web.app
+- **API (Cloud Run):** https://ecotrace-api-frl7lolcea-el.a.run.app — health check: [`/health`](https://ecotrace-api-frl7lolcea-el.a.run.app/health)
+
 ## Tech stack
 
 - **Frontend:** Next.js (TypeScript) on Firebase Hosting
@@ -18,6 +23,8 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 frontend/   Next.js app
 backend/    FastAPI service + Dockerfile
 docs/       Submission tracker, architecture, benchmarks, screenshots
+scripts/    One-command deploy scripts
+firebase.json, .firebaserc, firestore.rules   Firebase Hosting + Firestore config
 ```
 
 ## Run locally
@@ -47,6 +54,18 @@ pytest
 cd backend
 docker build -t ecotrace-backend .
 docker run -p 8080:8080 ecotrace-backend
+```
+
+For local frontend dev against a local backend, copy `frontend/.env.example` to `frontend/.env.local`, and run the backend with `ALLOWED_ORIGINS=http://localhost:3000`.
+
+## Deploy
+
+Prerequisites: `gcloud` and `firebase` CLIs, logged in (`gcloud auth login`, `firebase login`) with access to project `ecotrace-9e406`. Run from Git Bash (or any bash):
+
+```bash
+./scripts/deploy-backend.sh    # Cloud Build -> Cloud Run service "ecotrace-api"
+./scripts/deploy-frontend.sh   # static export -> Firebase Hosting (API URL read from Cloud Run)
+firebase deploy --only firestore:rules
 ```
 
 ## Secrets
