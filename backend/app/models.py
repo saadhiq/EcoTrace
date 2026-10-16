@@ -1,9 +1,10 @@
-"""Shared domain models."""
+"""Shared domain models (also the Firestore document shapes)."""
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Role(StrEnum):
@@ -30,3 +31,91 @@ class UserProfile(BaseModel):
     email: str | None = None
     role: Role
     createdAt: datetime | None = None
+
+
+# --- Resident flow ---
+
+
+class BagStatus(StrEnum):
+    ISSUED = "issued"
+    SCHEDULED = "scheduled"
+    COLLECTED = "collected"
+    AT_WAREHOUSE = "at_warehouse"
+    PROCESSED = "processed"
+
+
+class PickupStatus(StrEnum):
+    REQUESTED = "requested"
+    ASSIGNED = "assigned"
+    COLLECTED = "collected"
+    DELIVERED = "delivered"
+    PROCESSED = "processed"
+    CANCELLED = "cancelled"
+
+
+CANCELLABLE_PICKUP_STATUSES = {PickupStatus.REQUESTED, PickupStatus.ASSIGNED}
+
+
+class TimeSlot(StrEnum):
+    MORNING = "morning"
+    AFTERNOON = "afternoon"
+
+
+class StatusEvent(BaseModel):
+    status: str
+    at: datetime
+    by: str
+
+
+class Consent(BaseModel):
+    dataSharing: bool = False
+    updatedAt: datetime | None = None
+
+
+class Household(BaseModel):
+    """households/{id}. The id is the owner's uid (one household per resident)."""
+
+    id: str
+    ownerUid: str
+    name: str
+    phone: str
+    addressLine: str
+    zone: str
+    lat: float | None = None
+    lng: float | None = None
+    consent: Consent = Field(default_factory=Consent)
+    createdAt: datetime
+
+
+class Bag(BaseModel):
+    """bags/{code}."""
+
+    code: str
+    householdId: str
+    ownerUid: str
+    status: BagStatus
+    pickupId: str | None = None
+    issuedAt: datetime
+    statusHistory: list[StatusEvent] = Field(default_factory=list)
+
+
+class Pickup(BaseModel):
+    """pickups/{id}."""
+
+    id: str
+    householdId: str
+    residentUid: str
+    zone: str
+    date: str  # YYYY-MM-DD, Asia/Colombo
+    timeSlot: TimeSlot
+    bagCodes: list[str]
+    notes: str = ""
+    status: PickupStatus
+    collectorUid: str | None = None
+    statusHistory: list[StatusEvent] = Field(default_factory=list)
+    createdAt: datetime
+
+
+def to_doc(model: BaseModel, id_field: str) -> dict[str, Any]:
+    """Firestore document data: the model minus its id field (the doc id)."""
+    return model.model_dump(mode="python", exclude={id_field})

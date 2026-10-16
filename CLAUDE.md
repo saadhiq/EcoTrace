@@ -14,8 +14,8 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Project ID / number | `ecotrace-9e406` / `55962094566` |
 | Region | `asia-south1` |
 | Cloud Run service | `ecotrace-api` → https://ecotrace-api-frl7lolcea-el.a.run.app |
-| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; `roles/iam.serviceAccountTokenCreator` on **itself only** (custom-token signing). Grant new roles per step, least privilege, with user approval. |
-| Firestore | `(default)`, Native mode, `asia-south1`; rules: users read own `users/{uid}` only, everything else denied |
+| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; custom role `projects/ecotrace-9e406/roles/ecotraceTokenSigner` (only `iam.serviceAccounts.signBlob`) bound on **itself only** for custom-token signing. Grant new roles per step, least privilege, with user approval. |
+| Firestore | `(default)`, Native mode, `asia-south1`; schema in `docs/DATA_MODEL.md`; rules: clients read only their own `users` / `households` / `bags` / `pickups`, no client writes |
 | Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
 | Firebase web app | `EcoTrace Web` — `1:55962094566:web:eff857d7171aac9606e427` |
 
@@ -30,11 +30,30 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - Demo accounts: fixed uids `demo-{role}`, no password. `POST /auth/demo/{role}` repairs the user and returns a custom token (frontend: `signInWithCustomToken`). Rate-limited per client IP (last `X-Forwarded-For` entry, in-memory per instance).
 - Frontend: `AuthProvider` (`useAuth()`), `RoleGuard` for each dashboard, `dashboardPath(role)` for redirects. Guards are UX only; the backend and Firestore rules enforce access.
 
+## Backend structure & data rules
+
+- `app/models.py` (Pydantic models = Firestore doc shapes), `app/store.py` (`DataStore` interface + `FirestoreDataStore`), `app/services.py` (all business rules, raising `DomainError(status, detail)`), `app/routes/*.py` (thin), `app/deps.py` (`get_store`, `get_clock` — overridden in tests with `FakeDataStore` / `FixedClock`).
+- **No Firestore transactions (demo scope).** Validate, then write all related docs in **one batch** (`DataStore.commit`). Uniqueness via `create()` (households by uid, bags by code).
+- Dates for pickups are Colombo calendar days (`app/clock.py`, fixed UTC+5:30); store `"YYYY-MM-DD"`.
+- `statusHistory` entries use `clock.now()` (Firestore forbids `SERVER_TIMESTAMP` inside arrays).
+- Zones live only in `app/zones.py` and are served by `GET /zones`; the frontend fetches them.
+- Bag codes: `app/bagcodes.py` (`ECO-XXXX-XC`, Luhn mod-N check char).
+- Demo resident data: `ensure_demo_resident_data()` in `app/demo.py` runs on every `POST /auth/demo/resident` and in the seed script; it only adds, never deletes.
+- When adding a client query, add a matching composite index to `firestore.indexes.json` if it filters + orders on different fields, and make sure the rules allow it.
+
+## Frontend data conventions
+
+- **Writes** go through `src/lib/*` API helpers (`apiFetch` with the ID token). **Live reads** use Firestore `onSnapshot` hooks in `src/lib/liveData.ts`, always filtered on the caller's uid so the rules allow them.
+- Resident pages wrap content in `ResidentPage` (guard + household load + onboarding); other roles use `DashboardPage`.
+- Map API error `detail` codes to friendly text (`residentErrorMessage`).
+
 ## Frontend UI conventions
 
 - Design tokens (colors incl. per-role accents, spacing, radius, shadows, type) live in `src/app/globals.css`, with dark mode. Never hardcode colors.
-- Shared components in `src/components/ui/` (`Button`, `Card`, `Field`, `Alert`, `RoleBadge`, `Spinner`, `AppShell`, `Logo`, ...). Build new screens from these. Pages wrap content in `DashboardPage`/`AppShell`.
-- Plain CSS modules, mobile-first; no horizontal scroll at 390px.
+- Shared components in `src/components/ui/` (`Button`, `Card`, `Field`, `SelectField`, `TextareaField`, `Alert`, `Notice`, `EmptyState`, `RoleBadge`, `StatusBadge`, `ProgressTracker`, `QrCode`, `Spinner`, `AppShell` (with optional sub-nav), `Logo`, ...). Build new screens from these.
+- Plain CSS modules, mobile-first; no horizontal scroll at 390px. Every list has loading, empty and error states.
+- Print: `data-print="hide"` hides elements when printing (app chrome uses it).
+- Add `data-testid` hooks for anything the browser checks need (CSS-module class names are hashed in production).
 
 ## Roles
 
@@ -127,8 +146,8 @@ docker build -t ecotrace-backend . && docker run -p 8080:8080 ecotrace-backend
 ```bash
 ./scripts/deploy-backend.sh              # gcloud run deploy --source backend -> ecotrace-api
 ./scripts/deploy-frontend.sh             # build static export with NEXT_PUBLIC_API_URL -> Firebase Hosting
-firebase deploy --only firestore:rules   # Firestore security rules
-backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair the 4 demo users (idempotent)
+firebase deploy --only firestore         # Firestore security rules + composite indexes
+backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair the 4 demo users + demo resident data (idempotent)
 ```
 
 Local seeding uses your ADC (`gcloud auth application-default login`, quota project `ecotrace-9e406`).

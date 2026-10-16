@@ -6,10 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user, get_identity, get_user_store, require_registered
-from app.demo import ensure_demo_user
+from app.clock import Clock
+from app.demo import ensure_demo_resident_data, ensure_demo_user
+from app.deps import get_clock, get_store
 from app.identity import IdentityAdmin
 from app.models import CurrentUser, Role, UserProfile
 from app.ratelimit import RateLimiter, enforce
+from app.store import DataStore
 from app.users import UserStore
 
 logger = logging.getLogger(__name__)
@@ -94,6 +97,8 @@ def demo_sign_in(
     limiter: RateLimiter = Depends(get_demo_limiter),
     identity: IdentityAdmin = Depends(get_identity),
     users: UserStore = Depends(get_user_store),
+    store: DataStore = Depends(get_store),
+    clock: Clock = Depends(get_clock),
 ) -> DemoTokenResponse:
     """Repair the demo user for `role` and return a Firebase custom token for it."""
     try:
@@ -102,5 +107,7 @@ def demo_sign_in(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_role") from exc
     client = enforce(limiter, request)
     uid = ensure_demo_user(identity, users, demo_role)
+    if demo_role == Role.RESIDENT:
+        ensure_demo_resident_data(store, clock)
     logger.info("demo sign-in role=%s client=%s", demo_role.value, client)
     return DemoTokenResponse(token=identity.create_custom_token(uid), role=demo_role)

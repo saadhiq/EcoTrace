@@ -136,3 +136,19 @@ a:hover {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
+
+/* Print: hide app chrome; pages opt elements out with data-print="hide". */
+@media print {
+  :root {
+    --color-bg: #ffffff;
+    --color-text: #000000;
+  }
+
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+}

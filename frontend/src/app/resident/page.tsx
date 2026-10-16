@@ -1,14 +1,35 @@
-import DashboardPage from "@/components/dashboard/DashboardPage";
+"use client";
+
+import HouseholdCard from "@/components/resident/HouseholdCard";
+import PickupList from "@/components/resident/PickupList";
+import ResidentPage, { type ResidentContext } from "@/components/resident/ResidentPage";
+import styles from "@/components/resident/resident.module.css";
+import SchedulePickupCard from "@/components/resident/SchedulePickupCard";
+import { useMyBags, useMyPickups } from "@/lib/liveData";
+
+function Dashboard({ user, profile, household, zoneName }: ResidentContext) {
+  const pickups = useMyPickups(user.uid);
+  const bags = useMyBags(user.uid);
+  return (
+    <>
+      <div className={styles.pageHeader}>
+        <p className={styles.eyebrow}>Resident dashboard</p>
+        <h1 className={styles.title} data-testid="dashboard-title">
+          Welcome, {profile.name}
+        </h1>
+        <p className={styles.lead}>Schedule pickups and follow each bag from your door to the warehouse.</p>
+      </div>
+      <div className={styles.layout}>
+        <div className={styles.stack}>
+          <HouseholdCard household={household} zoneName={zoneName(household.zone)} bags={bags} pickups={pickups} />
+          <SchedulePickupCard user={user} bags={bags} />
+        </div>
+        <PickupList user={user} pickups={pickups} />
+      </div>
+    </>
+  );
+}
 
 export default function ResidentDashboard() {
-  return (
-    <DashboardPage
-      role="resident"
-      comingSoon={[
-        { title: "Schedule a pickup", description: "Pick a date and get a QR code for your bag." },
-        { title: "My pickups", description: "Track each bag from collection to the warehouse." },
-        { title: "Waste insights", description: "See what your household throws away, by category." },
-      ]}
-    />
-  );
+  return <ResidentPage>{(ctx) => <Dashboard {...ctx} />}</ResidentPage>;
 }

@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
 
 // Web config is public (not a secret) but comes from build-time env vars,
 // filled in by scripts/deploy-frontend.sh or frontend/.env.local.
@@ -19,4 +20,9 @@ function firebaseApp(): FirebaseApp {
 /** Lazily initialised so nothing runs during static prerendering. */
 export function firebaseAuth(): Auth {
   return getAuth(firebaseApp());
+}
+
+/** Read-only from the client: security rules deny all client writes. */
+export function firestoreDb(): Firestore {
+  return getFirestore(firebaseApp());
 }

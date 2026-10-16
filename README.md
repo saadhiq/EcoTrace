@@ -4,9 +4,22 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: authentication and role dashboards are live; waste-collection features are next.
+> Status: auth, role dashboards and the **resident flow** (household onboarding, bag QR codes, pickup scheduling with a live tracker) are live. Collector, warehouse and Gemini steps are next.
 
-**Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password).
+**Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
+
+## Resident flow
+
+1. **Onboarding** — a new resident enters household name, phone, address and zone; 5 bags with unique QR codes are issued.
+2. **My bags** — each bag shows its QR code (generated in the browser) and status; print an A4 label sheet; request 5 more (max 20 unused).
+3. **Schedule a pickup** — date (tomorrow…14 days ahead), morning/afternoon, 1–5 ready bags, notes.
+4. **My pickups** — live progress tracker *requested → assigned → collected → delivered → processed*, updated in real time with Firestore listeners; cancel while requested/assigned (bags return to ready).
+
+| Dashboard | Bag QR codes |
+|---|---|
+| ![Resident dashboard](docs/screenshots/step2-dashboard.png) | ![Bag QR codes](docs/screenshots/step2-bags-qr.png) |
+
+Data model and rules: [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 
 ## Live
 
@@ -31,6 +44,10 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 | `POST /auth/register` | ID token | First-time sign-up → resident (never changes an existing role) |
 | `GET /me` | ID token | Profile + role |
 | `POST /auth/demo/{role}` | none (rate-limited) | Repair demo user, return a Firebase custom token |
+| `GET /zones` | none | Service zones |
+| `POST /households` · `GET`/`PATCH /households/me` | resident | Onboarding + 5 starter bags; view/update household and consent |
+| `GET /bags/mine` · `POST /bags/request-more` | resident | List bags; issue 5 more (max 20 unused) |
+| `POST /pickups` · `GET /pickups/mine` · `POST /pickups/{id}/cancel` | resident | Schedule (validated), list, cancel |
 
 ![Login page](docs/screenshots/step1-login.png)
 
@@ -39,9 +56,9 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 ```
 frontend/   Next.js app
 backend/    FastAPI service + Dockerfile
-docs/       Submission tracker, architecture, benchmarks, screenshots
-scripts/    One-command deploy scripts
-firebase.json, .firebaserc, firestore.rules   Firebase Hosting + Firestore config
+docs/       Submission tracker, data model, screenshots
+scripts/    Deploy scripts + demo seed script
+firebase.json, .firebaserc, firestore.rules, firestore.indexes.json   Firebase Hosting + Firestore config
 ```
 
 ## Run locally
@@ -82,8 +99,8 @@ Prerequisites: `gcloud` and `firebase` CLIs, logged in (`gcloud auth login`, `fi
 ```bash
 ./scripts/deploy-backend.sh    # Cloud Build -> Cloud Run service "ecotrace-api"
 ./scripts/deploy-frontend.sh   # static export -> Firebase Hosting (API URL read from Cloud Run)
-firebase deploy --only firestore:rules
-backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair demo users (idempotent)
+firebase deploy --only firestore   # security rules + composite indexes
+backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair demo users + demo resident data (idempotent)
 ```
 
 ## Secrets

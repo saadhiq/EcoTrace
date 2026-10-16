@@ -112,7 +112,7 @@ export default function LoginPage() {
             ))}
           </div>
           <p className={styles.demoNote}>
-            Demo accounts are shared and reset each time you sign in.
+            Demo accounts are shared. The demo resident always has sample bags and pickups ready.
           </p>
         </Card>
       </div>
