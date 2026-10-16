@@ -1,0 +1,26 @@
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.title {
+  font-size: 3rem;
+  color: #2e7d32;
+}
+
+.tagline {
+  max-width: 32rem;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.status {
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
