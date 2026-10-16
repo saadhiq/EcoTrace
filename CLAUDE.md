@@ -14,11 +14,27 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Project ID / number | `ecotrace-9e406` / `55962094566` |
 | Region | `asia-south1` |
 | Cloud Run service | `ecotrace-api` → https://ecotrace-api-frl7lolcea-el.a.run.app |
-| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` (no project roles yet; grant per step) |
-| Firestore | `(default)`, Native mode, `asia-south1`; rules deny all client access |
+| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; `roles/iam.serviceAccountTokenCreator` on **itself only** (custom-token signing). Grant new roles per step, least privilege, with user approval. |
+| Firestore | `(default)`, Native mode, `asia-south1`; rules: users read own `users/{uid}` only, everything else denied |
 | Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
+| Firebase web app | `EcoTrace Web` — `1:55962094566:web:eff857d7171aac9606e427` |
 
-Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins). Frontend build-time env: `NEXT_PUBLIC_API_URL`.
+Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins), `GOOGLE_CLOUD_PROJECT`, `DEMO_RATE_LIMIT_PER_MIN` (default 10).
+Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled by `deploy-frontend.sh`; see `frontend/.env.example`).
+
+## Auth & roles model
+
+- **Firebase custom claim `role`** (`resident | collector | operator | admin`) is the source of truth; `users/{uid}` `{name, email, role, createdAt}` mirrors it. Only the backend writes either.
+- Self sign-up → `POST /auth/register` → `resident`. It never changes an existing role. Staff accounts come only from an admin (later step) or `scripts/seed_demo_users.py`.
+- Every protected call sends `Authorization: Bearer <Firebase ID token>`. Backend: `get_current_user` (verify), `require_role(Role.X, ...)` / `require_registered` (authorise). Firebase/Firestore are behind `IdentityAdmin` / `UserStore` interfaces (`app/identity.py`, `app/users.py`) so tests use fakes (`tests/fakes.py`).
+- Demo accounts: fixed uids `demo-{role}`, no password. `POST /auth/demo/{role}` repairs the user and returns a custom token (frontend: `signInWithCustomToken`). Rate-limited per client IP (last `X-Forwarded-For` entry, in-memory per instance).
+- Frontend: `AuthProvider` (`useAuth()`), `RoleGuard` for each dashboard, `dashboardPath(role)` for redirects. Guards are UX only; the backend and Firestore rules enforce access.
+
+## Frontend UI conventions
+
+- Design tokens (colors incl. per-role accents, spacing, radius, shadows, type) live in `src/app/globals.css`, with dark mode. Never hardcode colors.
+- Shared components in `src/components/ui/` (`Button`, `Card`, `Field`, `Alert`, `RoleBadge`, `Spinner`, `AppShell`, `Logo`, ...). Build new screens from these. Pages wrap content in `DashboardPage`/`AppShell`.
+- Plain CSS modules, mobile-first; no horizontal scroll at 390px.
 
 ## Roles
 
@@ -68,7 +84,7 @@ Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins). Frontend bui
 /backend           FastAPI service (app/, tests/, Dockerfile)
 /docs              Submission docs, architecture, benchmarks
 /docs/screenshots  Screenshots for the deck / README
-/scripts           deploy-backend.sh, deploy-frontend.sh
+/scripts           deploy-backend.sh, deploy-frontend.sh, seed_demo_users.py
 firebase.json      Hosting (frontend/out) + Firestore rules/indexes config
 .firebaserc        Default Firebase project
 firestore.rules    Firestore security rules
@@ -112,6 +128,10 @@ docker build -t ecotrace-backend . && docker run -p 8080:8080 ecotrace-backend
 ./scripts/deploy-backend.sh              # gcloud run deploy --source backend -> ecotrace-api
 ./scripts/deploy-frontend.sh             # build static export with NEXT_PUBLIC_API_URL -> Firebase Hosting
 firebase deploy --only firestore:rules   # Firestore security rules
+backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair the 4 demo users (idempotent)
 ```
+
+Local seeding uses your ADC (`gcloud auth application-default login`, quota project `ecotrace-9e406`).
+POSTs to Cloud Run must carry a body/Content-Length (Google's front end returns 411 otherwise); `apiFetch` always sends JSON.
 
 The frontend is a static export: no SSR, no API routes, no server-only Next.js features.

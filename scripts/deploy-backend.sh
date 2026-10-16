@@ -18,7 +18,7 @@ gcloud run deploy "$SERVICE" \
   --service-account "$RUNTIME_SA" \
   --allow-unauthenticated \
   --min-instances 0 \
-  --set-env-vars "^@^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
+  --set-env-vars "^@^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
   --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"

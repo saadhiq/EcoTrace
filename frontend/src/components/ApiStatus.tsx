@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import styles from "./ApiStatus.module.css";
+
 type Status = "checking" | "connected" | "unreachable";
 
 const LABELS: Record<Status, string> = {
@@ -44,8 +46,8 @@ export default function ApiStatus() {
   }, []);
 
   return (
-    <p data-status={status} aria-live="polite">
+    <span className={styles.status} data-status={status} aria-live="polite">
       {LABELS[status]}
-    </p>
+    </span>
   );
 }

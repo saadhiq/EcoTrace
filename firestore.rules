@@ -1,9 +1,14 @@
 rules_version = '2';
 
-// Deny all client access for now. The backend (Admin SDK) bypasses these rules.
-// Per-role rules are added in later steps.
+// Clients may only read their own users/{uid} profile.
+// All writes go through the backend (Admin SDK bypasses these rules).
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

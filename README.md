@@ -4,7 +4,9 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: early scaffold — no features yet.
+> Status: authentication and role dashboards are live; waste-collection features are next.
+
+**Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password).
 
 ## Live
 
@@ -16,6 +18,21 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 - **Frontend:** Next.js (TypeScript) on Firebase Hosting
 - **Backend:** Python FastAPI on Cloud Run
 - **Google Cloud:** Firebase Auth, Firestore, Cloud Storage, Vertex AI Gemini, Secret Manager (`asia-south1`)
+
+## Roles & auth
+
+- Firebase Authentication; the user's **role is a Firebase custom claim** (`resident`, `collector`, `operator`, `admin`), mirrored in Firestore `users/{uid}`.
+- Anyone who signs up is a resident. Staff accounts are created by an admin or the seed script.
+- The FastAPI backend verifies every Firebase ID token with the Admin SDK and checks roles per endpoint.
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /health` | none | Liveness |
+| `POST /auth/register` | ID token | First-time sign-up → resident (never changes an existing role) |
+| `GET /me` | ID token | Profile + role |
+| `POST /auth/demo/{role}` | none (rate-limited) | Repair demo user, return a Firebase custom token |
+
+![Login page](docs/screenshots/step1-login.png)
 
 ## Repository layout
 
@@ -56,7 +73,7 @@ docker build -t ecotrace-backend .
 docker run -p 8080:8080 ecotrace-backend
 ```
 
-For local frontend dev against a local backend, copy `frontend/.env.example` to `frontend/.env.local`, and run the backend with `ALLOWED_ORIGINS=http://localhost:3000`.
+For local frontend dev against a local backend, copy `frontend/.env.example` to `frontend/.env.local` (fill in the Firebase web config from the Firebase console), and run the backend with `ALLOWED_ORIGINS=http://localhost:3000` and `GOOGLE_CLOUD_PROJECT=ecotrace-9e406` using your ADC (`gcloud auth application-default login`).
 
 ## Deploy
 
@@ -66,6 +83,7 @@ Prerequisites: `gcloud` and `firebase` CLIs, logged in (`gcloud auth login`, `fi
 ./scripts/deploy-backend.sh    # Cloud Build -> Cloud Run service "ecotrace-api"
 ./scripts/deploy-frontend.sh   # static export -> Firebase Hosting (API URL read from Cloud Run)
 firebase deploy --only firestore:rules
+backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair demo users (idempotent)
 ```
 
 ## Secrets

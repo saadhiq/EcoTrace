@@ -1,17 +1,21 @@
-import ApiStatus from "@/components/ApiStatus";
-import styles from "./page.module.css";
+"use client";
 
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+import { useAuth } from "@/components/auth/AuthProvider";
+import FullPageSpinner from "@/components/ui/FullPageSpinner";
+import { dashboardPath } from "@/lib/roles";
+
+/** Sends the visitor to their dashboard, or to /login. */
 export default function Home() {
-  return (
-    <main className={styles.main}>
-      <h1 className={styles.title}>EcoTrace</h1>
-      <p className={styles.tagline}>
-        Traceable household waste collection — from pickup to classification.
-      </p>
-      <p className={styles.status}>Coming soon.</p>
-      <div className={styles.api}>
-        <ApiStatus />
-      </div>
-    </main>
-  );
+  const { state } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state.status === "ready") router.replace(dashboardPath(state.profile.role));
+    else if (state.status === "signedOut" || state.status === "error") router.replace("/login");
+  }, [state, router]);
+
+  return <FullPageSpinner />;
 }
