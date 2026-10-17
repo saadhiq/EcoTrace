@@ -11,6 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.ai.classifier import AiError, Classifier
+from app.insights import awards_for, rebuild
 from app.clock import Clock
 from app.errors import DomainError
 from app.models import (
@@ -269,6 +270,8 @@ def confirm(
     processed_bag = advance_bag(bag, BagStatus.PROCESSED, by=operator_uid, clock=clock)
 
     pickup = store.get_pickup(bag.pickupId) if bag.pickupId else None
+    if pickup is not None:
+        record = record.model_copy(update={"pickupDate": pickup.date})
     pickups, routes = [], []
     pickup_done = False
     if pickup is not None:
@@ -280,5 +283,15 @@ def confirm(
             if pickup.collectorUid:
                 household = store.get_household(pickup.householdId)
                 routes.append(route_stop(pickup, household, [*others, processed_bag], clock))
-    store.commit(pickups, [processed_bag], routes, [record])
+    # Household stats are rebuilt from all confirmed records and written in the
+    # SAME batch, so they are always in sync with wasteRecords.
+    stats, _ = rebuild(store, now, bag.householdId, pending=[record])
+    store.commit(
+        pickups,
+        [processed_bag],
+        routes,
+        [record],
+        stats=[(bag.householdId, stats)],
+        ledger=[(bag.householdId, entry) for entry in awards_for(record)],
+    )
     return ConfirmResult(record=record, pickupProcessed=pickup_done)

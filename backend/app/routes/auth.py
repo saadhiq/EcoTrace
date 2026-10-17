@@ -14,6 +14,7 @@ from app.demo import (
     ensure_demo_user,
     is_demo_uid,
 )
+from app.demo_history import ensure_demo_resident_history
 from app.deps import get_clock, get_store
 from app.identity import IdentityAdmin
 from app.models import CurrentUser, Role, UserProfile
@@ -120,6 +121,7 @@ def demo_sign_in(
     uid = ensure_demo_user(identity, users, demo_role)
     if demo_role == Role.RESIDENT:
         ensure_demo_resident_data(store, clock)
+        ensure_demo_resident_history(store, clock)
     elif demo_role == Role.COLLECTOR:
         ensure_demo_collector_data(store, users, clock)
     elif demo_role == Role.OPERATOR:

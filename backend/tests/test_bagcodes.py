@@ -12,8 +12,13 @@ def test_generated_codes_have_expected_format_and_validate() -> None:
 
 
 def test_codes_are_not_sequential() -> None:
-    codes = {generate_code() for _ in range(1000)}
-    assert len(codes) == 1000
+    codes = sorted(generate_code() for _ in range(1000))
+    # ~24M possible codes: a rare duplicate among 1000 is expected (birthday
+    # problem, ~2%), so allow a few; uniqueness in storage is enforced by create().
+    assert len(set(codes)) >= 995
+    payloads = sorted({c[4:8] + c[9] for c in codes})
+    consecutive = sum(1 for a, b in zip(payloads, payloads[1:]) if a[:-1] == b[:-1])
+    assert consecutive < 100  # spread out, not counting up
 
 
 def test_rejects_malformed_codes() -> None:

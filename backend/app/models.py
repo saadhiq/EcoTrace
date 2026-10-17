@@ -104,6 +104,8 @@ class Bag(BaseModel):
     collectorUid: str | None = None
     issuedAt: datetime
     statusHistory: list[StatusEvent] = Field(default_factory=list)
+    # Seeded demo data; excluded from analytics and the AI benchmark.
+    isSynthetic: bool = False
 
 
 class Pickup(BaseModel):
@@ -127,6 +129,7 @@ class Pickup(BaseModel):
     missedReason: str | None = None
     # Partial completion: why some bags were not collected.
     missingBagsReason: str | None = None
+    isSynthetic: bool = False
 
 
 class RouteStop(BaseModel):
@@ -219,3 +222,91 @@ class WasteRecord(BaseModel):
     source: str | None = None  # ai | ai_edited | manual
     operatorUid: str | None = None
     processedAt: datetime | None = None
+    # Denormalised for insights (trend by pickup date).
+    pickupDate: str | None = None
+    isSynthetic: bool = False
+
+
+# --- Resident insights ---
+
+
+class CategoryStat(BaseModel):
+    items: int = 0  # distinct item rows
+    quantity: int = 0
+
+
+class ScoreParts(BaseModel):
+    """Eco-score components, already weighted (sum = ecoScore)."""
+
+    sorting: float
+    recycling: float
+    hazards: float
+
+
+class PickupPoint(BaseModel):
+    """One point of the trend chart (one processed pickup)."""
+
+    pickupId: str
+    date: str | None
+    bags: int
+    quantity: int
+    recyclableShare: float | None
+    ecoScore: int | None
+
+
+class HouseholdStats(BaseModel):
+    """households/{id}/stats/summary: rebuilt from confirmed wasteRecords."""
+
+    categories: dict[str, CategoryStat] = Field(default_factory=dict)
+    totalItems: int = 0
+    totalQuantity: int = 0
+    recyclableQuantity: int = 0
+    recyclableShare: float | None = None
+    bagsProcessed: int = 0
+    pickupsProcessed: int = 0
+    segregation: dict[str, int] = Field(default_factory=dict)
+    hazards: dict[str, int] = Field(default_factory=dict)
+    hazardBags: int = 0
+    safeHazardBags: int = 0
+    ecoScore: int | None = None
+    scoreParts: ScoreParts | None = None
+    points: int = 0
+    byPickup: list[PickupPoint] = Field(default_factory=list)
+    statsHash: str = ""
+    lastUpdated: datetime | None = None
+
+
+class LedgerEntry(BaseModel):
+    """households/{id}/pointsLedger/{id}: id = f"{bagCode}-{reason}" (idempotent)."""
+
+    id: str
+    bagCode: str
+    reason: str
+    points: int
+    at: datetime
+
+
+class Tip(BaseModel):
+    title: str = Field(max_length=80)
+    body: str = Field(max_length=400)
+    category: Category
+
+
+class TipsCache(BaseModel):
+    """households/{id}/tips/{lang}."""
+
+    lang: str
+    tips: list[Tip]
+    statsHash: str
+    model: str
+    generatedAt: datetime
+    latencyMs: int | None = None
+
+
+class ConsentEntry(BaseModel):
+    """households/{id}/consentHistory/{auto}."""
+
+    value: bool
+    at: datetime
+    by: str
+    textVersion: str

@@ -16,6 +16,7 @@ from app.models import (
     UserProfile,
     WasteRecord,
 )
+from app.models import ConsentEntry, HouseholdStats, LedgerEntry, TipsCache, WasteRecordStatus
 
 
 class FixedClock:
@@ -38,6 +39,10 @@ class FakeDataStore:
         self.pickups: dict[str, Pickup] = {}
         self.routes: dict[str, RouteStop] = {}
         self.records: dict[str, WasteRecord] = {}
+        self.stats: dict[str, HouseholdStats] = {}
+        self.ledger: dict[str, dict[str, LedgerEntry]] = {}
+        self.tips: dict[tuple[str, str], TipsCache] = {}
+        self.consent: dict[str, list[ConsentEntry]] = {}
         self.commits = 0
         self._ids = itertools.count(1)
         # Codes create_bags() should treat as already taken (collision tests).
@@ -81,6 +86,25 @@ class FakeDataStore:
     def save_waste_record(self, record: WasteRecord) -> None:
         self.records[record.bagCode] = record
 
+    def list_confirmed_records(self, household_id: str) -> list[WasteRecord]:
+        return [r for r in self.records.values()
+                if r.householdId == household_id and r.status == WasteRecordStatus.CONFIRMED]
+
+    def get_pickups(self, pickup_ids: list[str]) -> dict[str, Pickup]:
+        return {p: self.pickups[p] for p in pickup_ids if p in self.pickups}
+
+    def get_stats(self, household_id: str) -> HouseholdStats | None:
+        return self.stats.get(household_id)
+
+    def get_tips(self, household_id: str, lang: str) -> TipsCache | None:
+        return self.tips.get((household_id, lang))
+
+    def save_tips(self, household_id: str, cache: TipsCache) -> None:
+        self.tips[(household_id, cache.lang)] = cache
+
+    def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]:
+        return sorted(self.consent.get(household_id, []), key=lambda e: e.at, reverse=True)[:limit]
+
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         return self.pickups.get(pickup_id)
 
@@ -113,8 +137,21 @@ class FakeDataStore:
         bags: list[Bag],
         routes: list[RouteStop] | None = None,
         records: list[WasteRecord] | None = None,
+        *,
+        households: list[Household] | None = None,
+        stats: list[tuple[str, HouseholdStats]] | None = None,
+        ledger: list[tuple[str, LedgerEntry]] | None = None,
+        consent: list[tuple[str, ConsentEntry]] | None = None,
     ) -> None:
         self.commits += 1
+        for household in households or []:
+            self.households[household.id] = household
+        for household_id, summary in stats or []:
+            self.stats[household_id] = summary
+        for household_id, entry in ledger or []:
+            self.ledger.setdefault(household_id, {})[entry.id] = entry
+        for household_id, entry in consent or []:
+            self.consent.setdefault(household_id, []).append(entry)
         for pickup in pickups:
             self.pickups[pickup.id] = pickup
         for bag in bags:
@@ -241,3 +278,22 @@ class FakePhotoStore:
         paths = [f"gs://test-bucket/bags/{bag_code}/{len(self.saved) + i}.jpg" for i in range(len(photos))]
         self.saved.extend(paths)
         return paths
+
+
+class FakeTipGenerator:
+    """Counts calls; returns 3 tips in the requested language, or raises `error`."""
+
+    model = "fake-gemini"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict, str]] = []
+        self.error: Exception | None = None
+
+    def generate(self, payload: dict, lang: str):  # noqa: ANN201
+        from app.models import Tip
+
+        self.calls.append((payload, lang))
+        if self.error is not None:
+            raise self.error
+        tips = [Tip(title=f"{lang} tip {i}", body=f"Do thing {i}.", category="plastic") for i in range(1, 4)]
+        return tips, 321

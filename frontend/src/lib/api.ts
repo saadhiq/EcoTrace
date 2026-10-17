@@ -10,7 +10,7 @@ export class ApiError extends Error {
 }
 
 type Options = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   /** Firebase ID token; sent as `Authorization: Bearer`. */
   token?: string;
   body?: unknown;
@@ -26,7 +26,7 @@ export async function apiFetch<T>(path: string, options: Options = {}): Promise<
   let body: string | FormData | undefined;
   if (options.form) {
     body = options.form;
-  } else if (method === "POST") {
+  } else if (method !== "GET") {
     // Always send a body: Google's front end rejects POSTs without Content-Length.
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(options.body ?? {});

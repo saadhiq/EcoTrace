@@ -4,7 +4,7 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) are live. Recommendations and the partner API are next.
+> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing) are live. The partner API is next.
 
 **Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
 
@@ -63,6 +63,24 @@ Data model and rules: [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 
 Sample photos: Wikimedia Commons, see [docs/sample-images/CREDITS.md](docs/sample-images/CREDITS.md).
 
+## Resident insights
+
+- **Eco score (0–100)** — a transparent formula, not AI: 50 % sorting quality + 30 % recyclable share + 20 % safe
+  hazard disposal, across all processed bags. Shown with its parts and a one-line explanation.
+- **Points** — +10 per processed bag, +5 when it's well sorted, +5 when hazardous items were packed separately; recent
+  awards listed.
+- **What you throw away** — per-category breakdown and an eco-score trend by pickup, updating **live** when the
+  warehouse confirms a bag.
+- **Pickup history** — tap a processed pickup to see what was found in each bag (no photos).
+- **Tips** — Gemini writes 3 personalised tips in **English, සිංහල or தமிழ்** from aggregated stats only; cached until
+  the stats change.
+- **Privacy & sharing** — opt-in (off by default) with a plain explanation of what would and would never be shared;
+  every change is logged.
+
+| Insights | Tips (Sinhala) | Privacy |
+|---|---|---|
+| ![Insights](docs/screenshots/step5-insights.png) | ![Tips in Sinhala](docs/screenshots/step5-tips-si.png) | ![Consent](docs/screenshots/step5-consent.png) |
+
 ## Roles & auth
 
 - Firebase Authentication; the user's **role is a Firebase custom claim** (`resident`, `collector`, `operator`, `admin`), mirrored in Firestore `users/{uid}`.
@@ -84,6 +102,9 @@ Sample photos: Wikimedia Commons, see [docs/sample-images/CREDITS.md](docs/sampl
 | `POST /collector/pickups/{id}/simulate-scan` | demo collector | Scan without a printed label |
 | `GET /collector/handover` · `POST /collector/handover/scan` | collector | Bags in my van; hand over at the warehouse |
 | `GET /taxonomy` | none | Waste categories, hazard flags, segregation levels |
+| `POST /residents/me/tips?lang=en\|si\|ta` | resident | 3 Gemini tips from aggregated stats (cached) |
+| `GET /residents/me/pickups/{id}/details` | resident | Items found per bag (no photos) |
+| `GET`/`PUT /households/me/consent` | resident | Data-sharing consent + history |
 | `GET /operator/queue` · `GET /operator/bags/{code}` | operator | Warehouse queue; bag + draft analysis |
 | `POST /operator/bags/{code}/analyze` | operator | 1–3 photos → Gemini structured result (draft) |
 | `POST /operator/bags/{code}/confirm` | operator | Final items → bag processed (last bag → pickup processed) |

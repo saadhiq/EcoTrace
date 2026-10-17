@@ -116,6 +116,51 @@ The browser never sends `aiResult`: each confirmed row carries `aiIndex` (which 
 `null` if added), and the server compares against the stored draft. Client access to `wasteRecords` is denied
 by the rules; residents will see insights through the API later.
 
+### `households/{id}/stats/summary` — resident insights
+**Rebuilt, not incremented:** on every operator confirm the backend reads the household's confirmed `wasteRecords`
+(plus the one being confirmed) and recomputes the whole summary, written in the **same batch** as the confirm — so it
+can never drift. `scripts/backfill_stats.py` uses the same function (`app/insights.py`).
+
+| Field | Notes |
+|---|---|
+| `categories` | `{category: {items, quantity}}` for every taxonomy category (zeros included) |
+| `totalItems`, `totalQuantity`, `recyclableQuantity`, `recyclableShare` | share by **quantity**; `null` if no items |
+| `bagsProcessed`, `pickupsProcessed` | |
+| `segregation` | `{good, mixed, poor}` bag counts |
+| `hazards`, `hazardBags`, `safeHazardBags` | flag counts; bags with hazards; of those, packed separately (segregation "good") |
+| `ecoScore`, `scoreParts` | see formula below; `null` until the first processed bag |
+| `points` | sum of all ledger awards |
+| `byPickup` | trend series: `{pickupId, date, bags, quantity, recyclableShare, ecoScore}` per pickup, last 12 |
+| `statsHash` | fingerprint of the aggregated numbers — keys the tips cache |
+| `lastUpdated` | |
+
+**Eco score (0–100) — computed by our code, never by Gemini:**
+
+```
+score = 50 × average segregation      (good = 1, mixed = 0.5, poor = 0, per bag)
+      + 30 × recyclable share          (recyclable quantity ÷ total quantity)
+      + 20 × safe-hazard share         (bags with no hazard flags, or hazards packed separately = "good")
+```
+Rounded and clamped to 0–100, over all processed bags; the same formula gives each pickup's trend point.
+UI one-liner: *"50% sorting quality + 30% recyclable share + 20% safe hazard disposal, across all your processed bags."*
+
+### `households/{id}/pointsLedger/{bagCode}-{reason}`
+`{bagCode, reason, points, at}`. Deterministic ids make awards idempotent (re-confirming or backfilling never awards
+twice). Awards per processed bag: **+10** `bag_processed`; **+5** `good_segregation`; **+5** `hazards_separated` (the
+bag had hazard flags **and** was well sorted, i.e. hazardous items were packed separately). Written in the confirm batch.
+
+### `households/{id}/tips/{lang}` — Gemini tips cache (API only)
+`{lang, tips[{title, body, category}], statsHash, model, generatedAt, latencyMs}`, `lang ∈ en | si | ta`. Served as-is
+while `statsHash` matches the current stats; regenerated once after the stats change. Fallback tips are never cached.
+
+### `households/{id}/consentHistory/{auto}` (API only)
+`{value, at, by, textVersion}` — one entry per **change** of `consent.dataSharing` (same-value updates are not logged),
+written in the same batch as the household update. `textVersion` records which explanation the resident saw (`v1`).
+
+### Synthetic demo data
+The demo resident's 8 history pickups (`demo-hist-01…08`), their bags and waste records carry **`isSynthetic: true`**
+(records also `source: "synthetic"`, `aiResult: null`). Analytics and the AI benchmark must exclude them.
+
 ## Status state machine
 
 Defined once in `backend/app/transitions.py`; every endpoint changes status through `advance_pickup` / `advance_bag`, which reject anything else with `409 invalid_transition` and append to `statusHistory`.
@@ -199,6 +244,8 @@ Known trade-offs: two schedule requests from the *same* resident at the same ins
 | `households/{id}` | `resource.data.ownerUid == request.auth.uid` | ✗ |
 | `bags/{code}` | `resource.data.ownerUid == request.auth.uid` | ✗ |
 | `pickups/{id}` | `resource.data.residentUid == request.auth.uid` (residents only — collectors never read pickups, so codes can't leak) | ✗ |
+| `households/{id}/stats/*`, `households/{id}/pointsLedger/*` | `request.auth.uid == {id}` (the household id is the owner's uid) — live dashboard | ✗ |
+| `households/{id}/tips/*`, `households/{id}/consentHistory/*` | ✗ (API only) | ✗ |
 | `routes/{pickupId}` | `resource.data.collectorUid == request.auth.uid` | ✗ |
 | everything else | ✗ | ✗ |
 

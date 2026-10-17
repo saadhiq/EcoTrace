@@ -26,6 +26,7 @@ from app.demo import (  # noqa: E402
     ensure_demo_resident_data,
     ensure_demo_user,
 )
+from app.demo_history import ensure_demo_resident_history  # noqa: E402
 from app.identity import FirebaseIdentityAdmin  # noqa: E402
 from app.models import Role  # noqa: E402
 from app.store import FirestoreDataStore  # noqa: E402
@@ -45,6 +46,8 @@ def main() -> None:
     resident = DEMO_ACCOUNTS[Role.RESIDENT].uid
     clock = SystemClock()
     ensure_demo_resident_data(store, clock)
+    history = ensure_demo_resident_history(store, clock)
+    print(f"  demo resident history: {history} synthetic pickups created")
     created = ensure_demo_collector_data(store, users, clock)
     print(f"  demo collector: {'new pickup ' + created if created else 'already has a pickup today'}")
     queued = ensure_demo_operator_data(store, clock)

@@ -22,10 +22,10 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 | 5 | Process flow | ☐ | Schedule → collect (QR) → photograph → Gemini classify → store → recommend |
 | 6 | Architecture diagram | ☐ | Firebase Hosting, Auth, Firestore, Storage, Cloud Run, Vertex AI Gemini, Secret Manager |
 | 7 | How we use Google Cloud | ☐ | From the section below |
-| 8 | Screenshots | ☐ | `docs/screenshots/` — have: `step1-login`, `step1-{resident,collector,operator,admin}`, `step1-mobile-resident`, `step2-{onboarding,dashboard,schedule,bags-qr,mobile}`, `step3-{collector-today,scan,scan-error,handover,resident-tracker-delivered,mobile}`, `step4-{queue,analyzing,results,edited,resident-processed,mobile}` |
+| 8 | Screenshots | ☐ | `docs/screenshots/` — have: `step1-login`, `step1-{resident,collector,operator,admin}`, `step1-mobile-resident`, `step2-{onboarding,dashboard,schedule,bags-qr,mobile}`, `step3-{collector-today,scan,scan-error,handover,resident-tracker-delivered,mobile}`, `step4-{queue,analyzing,results,edited,resident-processed,mobile}`, `step5-{insights,breakdown,pickup-detail,tips-en,tips-si,tips-ta,consent,mobile}` |
 | 9 | Gemini classification deep-dive | ☐ | Prompt rules, response schema, human review (`step4-results` vs `step4-edited`), accuracy from `aiResult` vs `finalItems` |
 | 10 | Performance / benchmark report | ☐ | Latency, cost, classification accuracy |
-| 11 | Privacy (opt-in, anonymization) | ☐ | |
+| 11 | Privacy (opt-in, anonymization) | ☐ | Consent off by default, plain-language explanation, logged history (`step5-consent`); tips use aggregates only; photos auto-deleted after 30 days |
 | 12 | Impact & roadmap | ☐ | Partner API |
 
 ## For judges
@@ -38,7 +38,7 @@ Open https://ecotrace-9e406.web.app → **Try a demo account** → pick any role
 - [ ] Resident schedules pickup
 - [ ] Collector accepts, scans QR (phone camera), completes, hands over at the warehouse; resident tracker moves live
 - [ ] Operator photographs bag (or sample photo) → "Analyzing with Gemini…" → reviews/edits items → confirm → resident tracker reaches Processed
-- [ ] Household history + recommendations
+- [ ] Resident insights: eco score, points, category breakdown, trend; Gemini tips in English → සිංහල → தமிழ்; consent toggle
 - [ ] Architecture recap
 - [ ] Recorded, edited, uploaded
 
@@ -64,6 +64,7 @@ _Fill in as each piece is built._
   - `pickups/{id}` — date (tomorrow…+14 days, Colombo time), slot, 1–5 bags, status `requested → assigned → collected → delivered → processed | cancelled` with `statusHistory`.
 - **Writes only through the API.** Scheduling validates (date window, bag count, ownership, `issued` status, one pickup per date) and then writes the pickup and all its bags in **one atomic batch**; cancelling returns bags to `issued` in the same batch.
 - **`routes/{pickupId}`** — code-free mirror of each accepted pickup (household name/address, slot, status, bag counts), written in the same batch as the pickup. Collectors listen to it live for "My route"; they can't read `pickups`, so bag codes never reach a collector before the scan.
+- **Aggregates (step 5):** `households/{id}/stats/summary` — per-category quantities, recyclable share, segregation and hazard counts, **eco score** (50 % sorting + 30 % recyclable share + 20 % safe hazards) and points, plus a per-pickup trend. Rebuilt from the confirmed `wasteRecords` and written **in the same batch as the operator's confirm**, so it's always in sync; `pointsLedger` entries have deterministic ids (idempotent). Residents read both **live** with `onSnapshot`: when the warehouse confirms a bag, the score, chart and points update on the resident's screen without a reload. `consentHistory` logs every data-sharing change.
 - **Realtime listeners:** the resident dashboard and "My bags" page subscribe with Firestore `onSnapshot` (queries `pickups where residentUid == me order by date` and `bags where ownerUid == me order by issuedAt`, backed by composite indexes in `firestore.indexes.json`). Status changes made by the backend show up live, with no polling; the progress tracker (requested → assigned → collected → delivered → processed) updates in place.
 - **Security rules:** clients may only **read their own** `users`, `households`, `bags` and `pickups` docs (matched on `ownerUid` / `residentUid`), and collectors their own `routes` (`collectorUid`); no client writes at all. Step 3 check with real tokens (14/14): collector reads own route → 200; the pickup doc with codes, zone queries, bags, households, any write, and other users reading the route → 403. Verified on the live project with real ID tokens (17/17 checks): owner reads and queries → 200; another resident's direct reads and filtered queries, any write, and unauthenticated reads → 403.
 
@@ -79,7 +80,8 @@ _Fill in as each piece is built._
 - **Collector flow (step 3):** `GET /collector/pickups?date=` (available in my zones + my route, no bag codes), `GET /collector/pickups/{id}`, `POST …/{id}/accept`, `POST …/{id}/scan`, `POST …/{id}/simulate-scan` (demo accounts only), `POST …/{id}/complete` (full, or partial with a reason), `POST …/{id}/missed`, `GET /collector/handover`, `POST /collector/handover/scan` (last bag in → pickup `delivered`).
 - Every status change goes through one state machine (`app/transitions.py`); invalid transitions are rejected with 409.
 - **Warehouse operator (step 4):** `GET /operator/queue`, `GET /operator/bags/{code}`, `POST /operator/bags/{code}/analyze` (multipart, 1–3 photos → Gemini; saves a draft, not processed), `POST /operator/bags/{code}/confirm` (final items → bag `processed`; last bag → pickup `processed`), `GET /taxonomy`.
-- 254 backend tests (pytest, in-memory fakes + a mocked Gemini SDK): every pickup and bag transition, all validation and scan errors, structured-output parsing (valid, partial, invalid), timeout → retry → manual fallback, edit counting, pickup processed on its last bag.
+- **Resident insights (step 5):** `POST /residents/me/tips?lang=`, `GET /residents/me/pickups/{id}/details` (final items per bag, no photos/AI internals), `GET|PUT /households/me/consent`.
+- 287 backend tests (pytest, in-memory fakes + mocked Gemini): score formula edge cases, ledger awards, stats in the confirm batch, tips caching/fallback, consent history, every pickup and bag transition, all validation and scan errors, structured-output parsing (valid, partial, invalid), timeout → retry → manual fallback, edit counting, pickup processed on its last bag.
 - Scales to zero (`min-instances 0`); CORS restricted to localhost + Firebase Hosting domains via the `ALLOWED_ORIGINS` env var.
 - The home page calls `/health` and shows "API: connected" (`docs/screenshots/00-home-api-connected.png`).
 
@@ -109,6 +111,14 @@ _Fill in as each piece is built._
   hazards, then confirms. We store **both** `aiResult` and `finalItems` plus a server-computed `editCount`, which is
   the basis for the AI-accuracy benchmark.
 - **Cost guard:** 10 analyses per operator per minute, max 3 photos of ≤ 4 MB.
+- **Multilingual personalised tips (step 5):** `POST /residents/me/tips?lang=en|si|ta` asks the same Gemini model for
+  3 short, practical tips in **English, Sinhala or Tamil** (native script), with structured output
+  `{tips: [{title, body, category}]}`. Gemini receives **only aggregated household statistics** (quantities per
+  category, recyclable share, segregation and hazard counts, eco score) — never photos, item lists, brands or personal
+  data. Tips are **cached per household + language** and regenerated only when the stats change (repeat visits don't
+  call Gemini: ~0.3 s from cache vs ~2 s generation). If Gemini fails, the resident gets their previous tips or static
+  tips (shorter 10 s timeout for tips). Sinhala/Tamil render with self-hosted Noto fonts.
+- **The eco score is NOT from Gemini** — it's a transparent formula over the confirmed data (see Firestore below).
 
 ### Cloud Storage
 - Private bucket **`gs://ecotrace-9e406-bag-photos`** in `asia-south1`: uniform bucket-level access, **public access
@@ -132,3 +142,4 @@ _Fill in as each piece is built._
 | 2 | Resident flow: signBlob-only custom IAM role; households (onboarding), bag QR codes + printable labels, pickup scheduling/cancel with validation and batch writes, live `onSnapshot` tracker, own-data read rules + indexes, demo resident data | ✅ |
 | 3 | Collector flow: state machine, accept/scan/complete/missed, warehouse handover → delivered, camera QR scanner (self-hosted decoder) + manual entry + demo "Simulate scan", code-free `routes` mirror for a live "My route", demo collector always has a pickup today | ✅ |
 | 4 | Warehouse operator + Gemini: `gemini-3.5-flash` on Vertex AI (asia-south1) with structured output and safety prompt, private photo bucket (30-day lifecycle), editable human review, `wasteRecords` keeping AI + final items, bag/pickup → processed, manual fallback, demo sample photos, prefetch-404 fix | ✅ |
+| 5 | Resident insights: live eco score (transparent formula), points ledger, category breakdown + trend (validated palette), pickup item history, Gemini tips in English/Sinhala/Tamil cached by stats, opt-in consent with logged history, 8 synthetic demo pickups (`isSynthetic`), deploy traffic safety check | ✅ |

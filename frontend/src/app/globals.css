@@ -55,25 +55,26 @@
   --text-2xl: 2rem;
 
 
-  /* Waste categories (text on soft tint) */
-  --cat-plastic: #1d5fbf;
-  --cat-plastic-soft: #e4edfb;
-  --cat-paper_cardboard: #8a5a1f;
-  --cat-paper_cardboard-soft: #f6ecdc;
-  --cat-glass: #0f7c80;
-  --cat-glass-soft: #def4f3;
-  --cat-metal: #4a5560;
-  --cat-metal-soft: #e8ecef;
-  --cat-organic: #3f7a1f;
-  --cat-organic-soft: #e7f3dc;
-  --cat-e_waste: #6d3fc0;
-  --cat-e_waste-soft: #efe8fb;
-  --cat-textile: #b03a7a;
-  --cat-textile-soft: #fbe6f1;
-  --cat-hazardous: #b42318;
-  --cat-hazardous-soft: #fdecea;
-  --cat-other: #5b6b62;
-  --cat-other-soft: #eef2ef;
+  /* Waste categories: validated categorical palette (dataviz skill), fixed order:
+     plastic, paper, glass, metal, textile, organic, e-waste, hazardous; other = neutral. */
+  --cat-plastic: #2a78d6;
+  --cat-plastic-soft: #e3eefb;
+  --cat-paper_cardboard: #eb6834;
+  --cat-paper_cardboard-soft: #fdeae1;
+  --cat-glass: #1baf7a;
+  --cat-glass-soft: #ddf4eb;
+  --cat-metal: #eda100;
+  --cat-metal-soft: #fdf1d6;
+  --cat-textile: #e87ba4;
+  --cat-textile-soft: #fbe8f0;
+  --cat-organic: #008300;
+  --cat-organic-soft: #ddf0dd;
+  --cat-e_waste: #6250d6;
+  --cat-e_waste-soft: #e9e6fa;
+  --cat-hazardous: #e34948;
+  --cat-hazardous-soft: #fbe4e4;
+  --cat-other: #7a827d;
+  --cat-other-soft: #eef0ee;
   --color-warning: #a15c00;
   --color-warning-soft: #fdf0dc;
 
@@ -109,24 +110,24 @@
     --role-admin-soft: #2c2142;
 
 
-    --cat-plastic: #6ea8fe;
-    --cat-plastic-soft: #1a2a44;
-    --cat-paper_cardboard: #e0b179;
-    --cat-paper_cardboard-soft: #3a2c19;
-    --cat-glass: #5fd0d3;
-    --cat-glass-soft: #143536;
-    --cat-metal: #b5c0ca;
-    --cat-metal-soft: #2a3036;
-    --cat-organic: #8fd16a;
-    --cat-organic-soft: #20321a;
-    --cat-e_waste: #b794f6;
-    --cat-e_waste-soft: #2c2142;
-    --cat-textile: #f08cc3;
-    --cat-textile-soft: #3d1f30;
-    --cat-hazardous: #f97066;
-    --cat-hazardous-soft: #3a1d1a;
-    --cat-other: #9aaba1;
-    --cat-other-soft: #1f2823;
+    --cat-plastic: #3987e5;
+    --cat-plastic-soft: #17283f;
+    --cat-paper_cardboard: #d95926;
+    --cat-paper_cardboard-soft: #3a2115;
+    --cat-glass: #199e70;
+    --cat-glass-soft: #12302a;
+    --cat-metal: #c98500;
+    --cat-metal-soft: #352a10;
+    --cat-textile: #d55181;
+    --cat-textile-soft: #3a1a28;
+    --cat-organic: #008300;
+    --cat-organic-soft: #132c13;
+    --cat-e_waste: #9085e9;
+    --cat-e_waste-soft: #26223f;
+    --cat-hazardous: #e66767;
+    --cat-hazardous-soft: #3d1c1c;
+    --cat-other: #8f9892;
+    --cat-other-soft: #232a26;
     --color-warning: #f5b04c;
     --color-warning-soft: #3a2a12;
 
@@ -175,6 +176,14 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+[lang="si"] {
+  font-family: var(--font-sinhala), var(--font-sans);
+}
+
+[lang="ta"] {
+  font-family: var(--font-tamil), var(--font-sans);
 }
 
 :focus-visible {

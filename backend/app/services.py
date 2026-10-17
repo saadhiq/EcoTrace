@@ -81,18 +81,21 @@ def get_household(store: DataStore, uid: str) -> Household:
 def update_household(
     store: DataStore, clock: Clock, uid: str, changes: dict[str, object]
 ) -> Household:
-    """Apply profile changes; `dataSharing` updates consent and its timestamp."""
+    """Apply profile changes. A `dataSharing` change also logs consentHistory
+    (same batch), exactly like PUT /households/me/consent."""
+    from app.residents import consent_change
+
     household = get_household(store, uid)
     if "zone" in changes:
         _require_zone(str(changes["zone"]))
-    data = household.model_dump()
-    if "dataSharing" in changes:
-        sharing = bool(changes.pop("dataSharing"))
-        if sharing != household.consent.dataSharing:
-            data["consent"] = {"dataSharing": sharing, "updatedAt": clock.now()}
-    data.update(changes)
-    updated = Household.model_validate(data)
-    store.save_household(updated)
+    sharing = changes.pop("dataSharing", None)
+    updated = Household.model_validate({**household.model_dump(), **changes})
+    entry = None
+    if sharing is not None:
+        change = consent_change(updated, bool(sharing), clock, by=uid)
+        if change is not None:
+            updated, entry = change
+    store.commit([], [], households=[updated], consent=[(uid, entry)] if entry else None)
     return updated
 
 

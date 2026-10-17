@@ -10,11 +10,12 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
 from app import config
+from app.ai.gemini import RETRY_BACKOFF_S, AiError, generate_with_retry, make_client, thinking_config
 from app.models import AiItem, AiResult, TokenUsage
 from app.taxonomy import CATEGORIES, HAZARD_FLAGS, SEGREGATION_QUALITIES, Category, HazardFlag, SegregationQuality
 
@@ -64,14 +65,6 @@ class _SchemaResult(BaseModel):
     segregationQuality: SegregationQuality
     hazardFlags: list[HazardFlag]
     notes: str
-
-
-class AiError(Exception):
-    """Classification failed. `kind`: unavailable | invalid_output."""
-
-    def __init__(self, kind: Literal["unavailable", "invalid_output"], message: str) -> None:
-        super().__init__(message)
-        self.kind = kind
 
 
 @dataclass
@@ -146,43 +139,25 @@ def parse_ai_output(data: Any) -> AiResult:
 # --- Gemini implementation ---
 
 
-def _is_retryable(exc: Exception) -> bool:
-    import httpx
-    from google.genai import errors
-
-    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, TimeoutError)):
-        return True
-    if isinstance(exc, errors.APIError):
-        return exc.code == 429 or (exc.code or 0) >= 500
-    return False
-
-
 class GeminiClassifier:
-    RETRY_BACKOFF_S = 1.5
+    RETRY_BACKOFF_S = RETRY_BACKOFF_S
 
     def __init__(self, sleep: Callable[[float], None] = time.sleep) -> None:
-        from google import genai
         from google.genai import types
 
         self._types = types
         self.model = config.gemini_model()
-        self._client = genai.Client(
-            vertexai=True,
-            project=config.project_id(),
-            location=config.gemini_location(),
-            http_options=types.HttpOptions(timeout=int(config.gemini_timeout_s() * 1000)),
-        )
+        self._client = make_client()
         self._sleep = sleep
 
     def _config(self):  # noqa: ANN202
         types = self._types
-        level = config.gemini_thinking_level()
         return types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
             response_mime_type="application/json",
             response_schema=_SchemaResult,
             temperature=0.2,
-            thinking_config=types.ThinkingConfig(thinking_level=level) if level else None,
+            thinking_config=thinking_config(types),
         )
 
     def classify(self, images: list[tuple[bytes, str]]) -> Classification:
@@ -190,19 +165,9 @@ class GeminiClassifier:
         contents = [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in images]
         contents.append(USER_PROMPT)
         started = time.perf_counter()
-        response = None
-        for attempt in (1, 2):  # one retry
-            try:
-                response = self._client.models.generate_content(
-                    model=self.model, contents=contents, config=self._config()
-                )
-                break
-            except Exception as exc:  # noqa: BLE001 - classify and map below
-                logger.warning("gemini attempt %d failed: %s", attempt, type(exc).__name__)
-                if attempt == 2 or not _is_retryable(exc):
-                    raise AiError("unavailable", f"Gemini request failed: {type(exc).__name__}") from exc
-                self._sleep(self.RETRY_BACKOFF_S)
-        assert response is not None
+        response = generate_with_retry(
+            self._client, self.model, contents, self._config(), self._sleep, self.RETRY_BACKOFF_S
+        )
         latency_ms = int((time.perf_counter() - started) * 1000)
         try:
             raw = json.loads(response.text or "")

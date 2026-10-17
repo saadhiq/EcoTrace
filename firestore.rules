@@ -18,6 +18,18 @@ service cloud.firestore {
     match /households/{householdId} {
       allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
       allow write: if false;
+
+      // Insights the resident listens to live. The household id IS the owner's
+      // uid, so no extra document read is needed. Tips cache and consent
+      // history stay API-only (covered by the deny-all rule below).
+      match /stats/{doc} {
+        allow read: if signedIn() && request.auth.uid == householdId;
+        allow write: if false;
+      }
+      match /pointsLedger/{entryId} {
+        allow read: if signedIn() && request.auth.uid == householdId;
+        allow write: if false;
+      }
     }
 
     match /bags/{code} {

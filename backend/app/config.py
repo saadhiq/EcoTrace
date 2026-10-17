@@ -43,6 +43,16 @@ def gemini_timeout_s() -> float:
     return float(os.environ.get("GEMINI_TIMEOUT_S", "25"))
 
 
+def gemini_tips_timeout_s() -> float:
+    """Tips are nice-to-have: fail fast to the fallback (GEMINI_TIPS_TIMEOUT_S)."""
+    return float(os.environ.get("GEMINI_TIPS_TIMEOUT_S", "10"))
+
+
+def tips_rate_limit() -> int:
+    """Max Gemini tip generations per resident per minute (TIPS_RATE_LIMIT_PER_MIN)."""
+    return int(os.environ.get("TIPS_RATE_LIMIT_PER_MIN", "10"))
+
+
 def analyze_rate_limit() -> int:
     """Max Gemini analyses per operator per minute (ANALYZE_RATE_LIMIT_PER_MIN)."""
     return int(os.environ.get("ANALYZE_RATE_LIMIT_PER_MIN", "10"))

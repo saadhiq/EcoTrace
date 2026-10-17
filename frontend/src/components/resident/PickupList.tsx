@@ -3,6 +3,7 @@
 import type { User } from "firebase/auth";
 import { useState } from "react";
 
+import PickupItems from "@/components/resident/insights/PickupItems";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -19,6 +20,7 @@ import styles from "./resident.module.css";
 
 function PickupItem({ pickup, user }: { pickup: Pickup; user: User }) {
   const [busy, setBusy] = useState(false);
+  const [showItems, setShowItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelled = pickup.status === "cancelled";
   const ended = cancelled || pickup.status === "missed";
@@ -72,6 +74,23 @@ function PickupItem({ pickup, user }: { pickup: Pickup; user: User }) {
       </div>
       {pickup.notes && <p className={styles.notes}>“{pickup.notes}”</p>}
       {error && <Alert>{error}</Alert>}
+      {pickup.status === "processed" && (
+        <div>
+          <Button
+            variant="secondary"
+            onClick={() => setShowItems((v) => !v)}
+            aria-expanded={showItems}
+            data-testid="show-items"
+          >
+            {showItems ? "Hide items" : "What was in my bags"}
+          </Button>
+          {showItems && (
+            <div style={{ marginTop: 12 }}>
+              <PickupItems user={user} pickupId={pickup.id} />
+            </div>
+          )}
+        </div>
+      )}
       {CANCELLABLE.includes(pickup.status) && (
         <div className={styles.pickupFoot}>
           <span className={styles.pickupMeta}>You can cancel until it&apos;s collected.</span>

@@ -75,7 +75,7 @@ export default function ItemEditor({ rows, categories, onChange, disabled = fals
                   disabled={disabled}
                   onChange={(e) => update(row.key, { category: e.target.value })}
                   style={{
-                    color: `var(--cat-${row.category})`,
+                    color: "var(--color-text)",
                     borderColor: `var(--cat-${row.category})`,
                     background: `var(--cat-${row.category}-soft)`,
                   }}

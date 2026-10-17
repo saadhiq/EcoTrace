@@ -10,13 +10,32 @@ from google.api_core.exceptions import AlreadyExists, Conflict
 from google.cloud.firestore import FieldFilter
 
 from app.firebase import firestore_client
-from app.models import Bag, BagStatus, Household, Pickup, PickupStatus, RouteStop, WasteRecord, to_doc
+from app.models import (
+    Bag,
+    BagStatus,
+    ConsentEntry,
+    Household,
+    HouseholdStats,
+    LedgerEntry,
+    Pickup,
+    PickupStatus,
+    RouteStop,
+    TipsCache,
+    WasteRecord,
+    WasteRecordStatus,
+    to_doc,
+)
 
 HOUSEHOLDS = "households"
 BAGS = "bags"
 PICKUPS = "pickups"
 ROUTES = "routes"
 WASTE_RECORDS = "wasteRecords"
+# Subcollections of households/{id}
+STATS, STATS_DOC = "stats", "summary"
+LEDGER = "pointsLedger"
+TIPS = "tips"
+CONSENT_HISTORY = "consentHistory"
 
 
 class DataStore(Protocol):
@@ -42,6 +61,18 @@ class DataStore(Protocol):
 
     def get_waste_records(self, codes: list[str]) -> dict[str, WasteRecord]: ...
 
+    def list_confirmed_records(self, household_id: str) -> list[WasteRecord]: ...
+
+    def get_pickups(self, pickup_ids: list[str]) -> dict[str, Pickup]: ...
+
+    def get_stats(self, household_id: str) -> HouseholdStats | None: ...
+
+    def get_tips(self, household_id: str, lang: str) -> TipsCache | None: ...
+
+    def save_tips(self, household_id: str, cache: TipsCache) -> None: ...
+
+    def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]: ...
+
     def save_waste_record(self, record: WasteRecord) -> None:
         """Write a draft record (analysis before confirmation)."""
         ...
@@ -66,8 +97,13 @@ class DataStore(Protocol):
         bags: list[Bag],
         routes: list[RouteStop] | None = None,
         records: list[WasteRecord] | None = None,
+        *,
+        households: list[Household] | None = None,
+        stats: list[tuple[str, HouseholdStats]] | None = None,
+        ledger: list[tuple[str, LedgerEntry]] | None = None,
+        consent: list[tuple[str, ConsentEntry]] | None = None,
     ) -> None:
-        """Write pickups, bags, route mirrors and waste records in one atomic batch."""
+        """Write all given documents in one atomic batch."""
         ...
 
 
@@ -153,7 +189,42 @@ class FirestoreDataStore:
     def save_waste_record(self, record: WasteRecord) -> None:
         self._records().document(record.bagCode).set(to_doc(record, "bagCode"))
 
+    def list_confirmed_records(self, household_id: str) -> list[WasteRecord]:
+        query = (
+            self._records()
+            .where(filter=FieldFilter("householdId", "==", household_id))
+            .where(filter=FieldFilter("status", "==", WasteRecordStatus.CONFIRMED.value))
+        )
+        return [WasteRecord(bagCode=snap.id, **snap.to_dict()) for snap in query.stream()]
+
+    # --- household subcollections ---
+    def _sub(self, household_id: str, name: str):  # noqa: ANN202
+        return self._households().document(household_id).collection(name)
+
+    def get_stats(self, household_id: str) -> HouseholdStats | None:
+        snap = self._sub(household_id, STATS).document(STATS_DOC).get()
+        return HouseholdStats(**snap.to_dict()) if snap.exists else None
+
+    def get_tips(self, household_id: str, lang: str) -> TipsCache | None:
+        snap = self._sub(household_id, TIPS).document(lang).get()
+        return TipsCache(**snap.to_dict()) if snap.exists else None
+
+    def save_tips(self, household_id: str, cache: TipsCache) -> None:
+        self._sub(household_id, TIPS).document(cache.lang).set(cache.model_dump(mode="python"))
+
+    def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]:
+        query = self._sub(household_id, CONSENT_HISTORY).order_by("at", direction="DESCENDING").limit(limit)
+        return [ConsentEntry(**snap.to_dict()) for snap in query.stream()]
+
     # --- pickups ---
+    def get_pickups(self, pickup_ids: list[str]) -> dict[str, Pickup]:
+        refs = [self._pickups().document(pid) for pid in dict.fromkeys(pickup_ids)]
+        return {
+            snap.id: Pickup(id=snap.id, **snap.to_dict())
+            for snap in self._db.get_all(refs)
+            if snap.exists
+        }
+
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         snap = self._pickups().document(pickup_id).get()
         return Pickup(id=snap.id, **snap.to_dict()) if snap.exists else None
@@ -194,8 +265,21 @@ class FirestoreDataStore:
         bags: list[Bag],
         routes: list[RouteStop] | None = None,
         records: list[WasteRecord] | None = None,
+        *,
+        households: list[Household] | None = None,
+        stats: list[tuple[str, HouseholdStats]] | None = None,
+        ledger: list[tuple[str, LedgerEntry]] | None = None,
+        consent: list[tuple[str, ConsentEntry]] | None = None,
     ) -> None:
         batch = self._db.batch()
+        for household in households or []:
+            batch.set(self._households().document(household.id), to_doc(household, "id"))
+        for household_id, summary in stats or []:
+            batch.set(self._sub(household_id, STATS).document(STATS_DOC), summary.model_dump(mode="python"))
+        for household_id, entry in ledger or []:
+            batch.set(self._sub(household_id, LEDGER).document(entry.id), to_doc(entry, "id"))
+        for household_id, entry in consent or []:
+            batch.set(self._sub(household_id, CONSENT_HISTORY).document(), entry.model_dump(mode="python"))
         for pickup in pickups:
             batch.set(self._pickups().document(pickup.id), to_doc(pickup, "id"))
         for bag in bags:
