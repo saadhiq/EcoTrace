@@ -2,6 +2,11 @@
 
 Guidance for Claude (and humans) working in this repo.
 
+> **FREEZE (submission, 2026-10-17):** no production deploys after submission — no `deploy-backend.sh`,
+> `deploy-frontend.sh`, `firebase deploy`, traffic changes, IAM or service-config changes, and no writes to
+> production data (seed, backfill, cleanup scripts) — **unless the user explicitly asks for that specific action**.
+> Local code changes, tests and docs are fine. Keep the free tier: Cloud Run stays at `min-instances 0`.
+
 ## Project
 
 **EcoTrace** is a traceable household waste-collection platform built for the Google Cloud **AI Builder Cup** hackathon.
