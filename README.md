@@ -4,9 +4,33 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing), **sustainable-swap recommendations**, the **partner API** and the **admin dashboard** (overview, AI quality, pickups with timelines, people, partners) are live.
+## Live
 
-**Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
+- **Web app (Firebase Hosting):** https://ecotrace-9e406.web.app
+- **API (Cloud Run):** https://ecotrace-api-frl7lolcea-el.a.run.app ([`/health`](https://ecotrace-api-frl7lolcea-el.a.run.app/health), interactive [`/docs`](https://ecotrace-api-frl7lolcea-el.a.run.app/docs))
+
+## Try it in one click (no password)
+
+Open the web app → **Try a demo account** → pick a role:
+
+| Button | What you'll see |
+|---|---|
+| **Resident** | A household with bags (QR codes), an upcoming pickup, eco score, points, Gemini tips (English / සිංහල / தமிழ்), sustainable swaps |
+| **Collector** | A pickup to collect **today**: accept it, press **Simulate scan** per bag (stands in for the printed QR), complete, then hand over at the warehouse |
+| **Warehouse operator** | A bag waiting in the queue: use a **sample photo** → Gemini lists the items → review/edit → confirm |
+| **Admin** | Overview, AI-quality panel, pickups with timelines, people, partners and a *Try the partner API* panel (read-only for accounts and partners) |
+
+Demo accounts are shared and repaired on every sign-in (the collector always gets a pickup, the operator always gets a bag). You can also sign up to go through onboarding yourself. The first request after a quiet period can take a few seconds while Cloud Run starts (it scales to zero).
+
+## Architecture
+
+![Architecture](docs/diagrams/architecture.png)
+
+- **Next.js** static site on **Firebase Hosting**; users sign in with **Firebase Auth** (role = custom claim).
+- The browser reads its own data **live from Firestore** (security rules: own documents only) and sends every change to the **FastAPI backend on Cloud Run**, which verifies the Firebase ID token and the role.
+- Cloud Run writes **Firestore** (one batch per change, a single state machine for pickups and bags), stores bag photos in **Cloud Storage** (private, deleted after 30 days) and calls **Gemini on Vertex AI** (`asia-south1`) for photo classification, multilingual tips and grounded swap ranking.
+- Partners use the **Partner API v1** on the same Cloud Run service with API keys (hashes in Firestore, demo keys in **Secret Manager**); they only ever see anonymised segments of consenting households (K ≥ 5).
+- Process flow: [docs/diagrams/process-flow.png](docs/diagrams/process-flow.png) · project description: [docs/DESCRIPTION.md](docs/DESCRIPTION.md).
 
 ## Resident flow
 
@@ -32,16 +56,11 @@ Data model and rules: [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 |---|---|---|
 | ![Collector today](docs/screenshots/step3-collector-today.png) | ![Scan](docs/screenshots/step3-scan.png) | ![Delivered](docs/screenshots/step3-resident-tracker-delivered.png) |
 
-## Live
-
-- **Web app (Firebase Hosting):** https://ecotrace-9e406.web.app
-- **API (Cloud Run):** https://ecotrace-api-frl7lolcea-el.a.run.app — health check: [`/health`](https://ecotrace-api-frl7lolcea-el.a.run.app/health)
-
 ## Tech stack
 
 - **Frontend:** Next.js (TypeScript) on Firebase Hosting
 - **Backend:** Python FastAPI on Cloud Run
-- **Google Cloud:** Firebase Auth, Firestore, Cloud Storage, Vertex AI Gemini (`asia-south1`)
+- **Google Cloud:** Firebase Auth, Firestore, Cloud Storage, Vertex AI Gemini, Secret Manager (all `asia-south1`)
 
 ## Warehouse operator + Gemini
 
