@@ -151,6 +151,32 @@ class FakeDataStore:
         key = (partner_id, day, kind, sku)
         self.events[key] = self.events.get(key, 0) + 1
 
+    # --- admin ---
+    def count_pickups(self, status: str, date_from: str, date_to: str, synthetic_only: bool = False) -> int:
+        return sum(1 for p in self.pickups.values()
+                   if p.status == status and date_from <= p.date <= date_to and (p.isSynthetic or not synthetic_only))
+
+    def list_all_stats(self) -> list[tuple[str, HouseholdStats]]:
+        return list(self.stats.items())
+
+    def list_quality_records(self) -> list[WasteRecord]:
+        return [r for r in self.records.values()
+                if r.status == WasteRecordStatus.CONFIRMED and r.source in ("ai", "ai_edited", "manual")]
+
+    def list_draft_records(self) -> list[WasteRecord]:
+        return [r for r in self.records.values() if r.status == WasteRecordStatus.DRAFT]
+
+    def list_pickups_by_date(self, day: str, zone: str | None = None, status: str | None = None) -> list[Pickup]:
+        return [p for p in self.pickups.values()
+                if p.date == day and (zone is None or p.zone == zone) and (status is None or p.status == status)]
+
+    def list_partner_metrics(self, partner_id: str, since_day: str) -> list[dict]:
+        days: dict[str, dict] = {}
+        for (pid, day, kind, sku), n in self.events.items():
+            if pid == partner_id and day >= since_day:
+                days.setdefault(day, {"day": day}).setdefault(kind, {})[sku] = n
+        return list(days.values())
+
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         return self.pickups.get(pickup_id)
 
@@ -253,6 +279,16 @@ class FakeIdentity:
     def create_custom_token(self, uid: str) -> str:
         return f"custom-token-for-{uid}"
 
+    def create_staff_user(self, email: str, display_name: str) -> tuple[str, str]:
+        from app.errors import DomainError
+
+        if email in self.taken_emails:
+            raise DomainError(409, "email_exists")
+        self.taken_emails.add(email)
+        uid = f"staff-{len(self.users) + 1}"
+        self.users[uid] = IdentityUser(uid, email, display_name, None)
+        return uid, f"https://reset.example/{uid}"
+
 
 class FakeUserStore:
     def __init__(self) -> None:
@@ -271,6 +307,15 @@ class FakeUserStore:
 
     def set_zones(self, uid: str, zones: list[str]) -> None:
         self.docs[uid] = self.docs[uid].model_copy(update={"zones": list(zones)})
+
+    def list_by_role(self, role: Role) -> list[UserProfile]:
+        return [p for p in self.docs.values() if p.role == role]
+
+    def count_by_role(self, role: Role) -> int:
+        return len(self.list_by_role(role))
+
+    def save(self, profile: UserProfile) -> None:
+        self.docs[profile.uid] = profile
 
 
 # --- warehouse / AI fakes ---
@@ -363,3 +408,15 @@ class FakeRanker:
             return self.response, 111
         picks = [{"sku": c["sku"], "reason": f"Because of {c['sku']}."} for c in payload["candidates"][:2]]
         return {"picks": picks}, 111
+
+
+class FakeDemoKeyReader:
+    """Mimics SecretManagerDemoKeyReader: only the two demo partners have a readable key."""
+
+    def read(self, partner_id: str) -> str:
+        from app.errors import DomainError
+        from app.secrets import DEMO_PARTNER_IDS
+
+        if partner_id not in DEMO_PARTNER_IDS:
+            raise DomainError(404, "not_a_demo_partner")
+        return f"etp.{partner_id}.secret-from-secret-manager"

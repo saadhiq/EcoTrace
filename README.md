@@ -4,7 +4,7 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing), **sustainable-swap recommendations** and the **partner API** are live. An admin console is next.
+> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing), **sustainable-swap recommendations**, the **partner API** and the **admin dashboard** (overview, AI quality, pickups with timelines, people, partners) are live.
 
 **Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
 
@@ -89,12 +89,21 @@ Sample photos: Wikimedia Commons, see [docs/sample-images/CREDITS.md](docs/sampl
 - **Partner API v1** (`/partner/v1`, `X-API-Key`): anonymised **segments** (rule-based, e.g. *beverage-plastic heavy*),
   the partner's products that fit a segment, and category trends by zone. Only consenting households count, and any
   group smaller than **5 households is suppressed**. Try it in the interactive docs:
-  **https://ecotrace-api-frl7lolcea-el.a.run.app/docs** → *Authorize* → *Try it out* (demo key: ask the team / admin
-  console).
+  **https://ecotrace-api-frl7lolcea-el.a.run.app/docs** → *Authorize* → *Try it out* (the demo admin's **Partners** page has the demo key and a *Try the partner API* panel).
 
 | Swaps | Partner API (OpenAPI docs) |
 |---|---|
 | ![Swaps](docs/screenshots/step6a-swaps.png) | ![Segments response](docs/screenshots/step6a-segments-response.png) |
+
+- **Admin dashboard** (`/admin`): KPIs from Firestore `count()` aggregation queries (cached 60 s) with an
+  *Include synthetic data* toggle, waste by category and per zone; an **AI quality** panel (how often operators
+  correct Gemini, p95 latency, low-confidence items, failures); pickups with a full timeline and reassignment through
+  the state machine; staff accounts; partner engagement. The public demo admin is **read-only for accounts and
+  partners** (server-enforced).
+
+| Admin overview | AI quality |
+|---|---|
+| ![Admin overview](docs/screenshots/step6b-overview.png) | ![AI quality](docs/screenshots/step6b-ai-quality.png) |
 
 ## Roles & auth
 

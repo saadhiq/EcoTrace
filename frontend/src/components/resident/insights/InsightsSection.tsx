@@ -127,7 +127,7 @@ export default function InsightsSection({ uid, statsState }: { uid: string; stat
 
           <div className={styles.charts}>
             <Card title="What you throw away" subtitle={`${stats.totalQuantity} items across ${stats.bagsProcessed} bags`}>
-              <CategoryBreakdown stats={stats} label={label} />
+              <CategoryBreakdown categories={stats.categories} total={stats.totalQuantity} label={label} />
             </Card>
             <Card title="Eco score by pickup" subtitle="Each point is one processed pickup.">
               <TrendChart points={stats.byPickup} />

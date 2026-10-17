@@ -178,11 +178,27 @@ def compute_stats(records: list[WasteRecord], now: datetime) -> HouseholdStats:
             bags=len(confirmed),
         ),
         segmentVersion=SEGMENT_VERSION,
+        realOnly=_real_only(confirmed),
         firstProcessed=days[0] if days else None,
         lastProcessed=days[-1] if days else None,
         lastUpdated=now,
     )
     return stats.model_copy(update={"statsHash": stats_hash(stats)})
+
+
+def _real_only(records: list[WasteRecord]) -> dict:
+    """Totals from non-synthetic records only (admin 'exclude synthetic' view)."""
+    real = [r for r in records if not r.isSynthetic]
+    categories: dict[str, int] = defaultdict(int)
+    for r in real:
+        for item in r.finalItems:
+            categories[item.category] += item.quantity
+    return {
+        "bags": len(real),
+        "quantity": sum(categories.values()),
+        "recyclableQuantity": sum(i.quantity for r in real for i in r.finalItems if i.recyclable),
+        "categories": dict(categories),
+    }
 
 
 def stats_hash(stats: HouseholdStats) -> str:
@@ -222,4 +238,8 @@ def rebuild(
             for r in records
         ]
     ledger = [entry for record in records for entry in awards_for(record)]
-    return compute_stats(records, now), ledger
+    stats = compute_stats(records, now)
+    household = store.get_household(household_id)
+    if household is not None:
+        stats = stats.model_copy(update={"zone": household.zone, "isSynthetic": household.isSynthetic})
+    return stats, ledger

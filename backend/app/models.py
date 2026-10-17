@@ -35,6 +35,7 @@ class UserProfile(BaseModel):
     createdAt: datetime | None = None
     # Collectors only: the zones they cover.
     zones: list[str] = Field(default_factory=list)
+    isSynthetic: bool = False
 
 
 # --- Resident flow ---
@@ -226,6 +227,10 @@ class WasteRecord(BaseModel):
     # Denormalised for insights (trend by pickup date).
     pickupDate: str | None = None
     isSynthetic: bool = False
+    # Operator edits vs the AI result (set on confirm; None on older records).
+    itemsAdded: int | None = None
+    itemsRemoved: int | None = None
+    itemsModified: int | None = None
 
 
 # --- Resident insights ---
@@ -279,6 +284,10 @@ class HouseholdStats(BaseModel):
     monthly: dict[str, dict[str, int]] = Field(default_factory=dict)
     segment: str | None = None
     segmentVersion: str | None = None
+    # Admin overview: zone, synthetic household flag, totals from real (non-synthetic) records only.
+    zone: str | None = None
+    isSynthetic: bool = False
+    realOnly: dict = Field(default_factory=dict)
     firstProcessed: str | None = None
     lastProcessed: str | None = None
     statsHash: str = ""

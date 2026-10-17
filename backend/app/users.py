@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from google.cloud.firestore import SERVER_TIMESTAMP
+from google.cloud.firestore import SERVER_TIMESTAMP, FieldFilter
 
 from app.firebase import firestore_client
 from app.models import Role, UserProfile
@@ -18,6 +18,12 @@ class UserStore(Protocol):
     def set_zones(self, uid: str, zones: list[str]) -> None:
         """Collectors: the zones they cover."""
         ...
+
+    def list_by_role(self, role: Role) -> list[UserProfile]: ...
+
+    def count_by_role(self, role: Role) -> int: ...
+
+    def save(self, profile: UserProfile) -> None: ...
 
 
 class FirestoreUserStore:
@@ -42,3 +48,17 @@ class FirestoreUserStore:
 
     def set_zones(self, uid: str, zones: list[str]) -> None:
         self._collection.document(uid).set({"zones": zones}, merge=True)
+
+    def list_by_role(self, role: Role) -> list[UserProfile]:
+        query = self._collection.where(filter=FieldFilter("role", "==", role.value))
+        return [UserProfile(uid=s.id, **s.to_dict()) for s in query.stream()]
+
+    def count_by_role(self, role: Role) -> int:
+        query = self._collection.where(filter=FieldFilter("role", "==", role.value))
+        return int(query.count(alias="n").get()[0][0].value)
+
+    def save(self, profile: UserProfile) -> None:
+        data = profile.model_dump(mode="python", exclude={"uid"})
+        if data.get("createdAt") is None:
+            data["createdAt"] = SERVER_TIMESTAMP
+        self._collection.document(profile.uid).set(data, merge=True)

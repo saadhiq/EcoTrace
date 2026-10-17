@@ -10,17 +10,19 @@ export class ApiError extends Error {
 }
 
 type Options = {
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "PATCH";
   /** Firebase ID token; sent as `Authorization: Bearer`. */
   token?: string;
   body?: unknown;
   /** Multipart upload (e.g. photos). The browser sets the Content-Type boundary. */
   form?: FormData;
+  /** Extra headers (e.g. the partner API's X-API-Key). */
+  headers?: Record<string, string>;
 };
 
 export async function apiFetch<T>(path: string, options: Options = {}): Promise<T> {
   const method = options.method ?? "GET";
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
   let body: string | FormData | undefined;

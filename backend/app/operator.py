@@ -194,35 +194,54 @@ def analyze(
 # --- confirm ---
 
 
-def count_edits(
+class EditBreakdown(BaseModel):
+    added: int = 0
+    removed: int = 0
+    modified: int = 0
+    bagLevel: int = 0  # segregation quality and/or hazard flags changed
+
+    @property
+    def total(self) -> int:
+        return self.added + self.removed + self.modified + self.bagLevel
+
+
+def edit_breakdown(
     ai: AiResult | None,
     items: list[FinalItem],
     quality: SegregationQuality,
     hazards: list[HazardFlag],
-) -> int:
-    """Items added + removed + changed, plus bag-level changes.
+) -> EditBreakdown:
+    """Items added / removed / changed vs the AI result, plus bag-level changes.
 
     Each final row says which AI item it came from (aiIndex), so renaming an
     item counts as one change, not a removal plus an addition.
     """
     if ai is None:
-        return len(items)
+        return EditBreakdown(added=len(items))
     seen: set[int] = set()
-    edits = 0
+    out = EditBreakdown()
     for item in items:
         if item.aiIndex is None:
-            edits += 1  # added
+            out.added += 1
             continue
         if item.aiIndex >= len(ai.items) or item.aiIndex in seen:
             raise DomainError(422, "invalid_ai_index")
         seen.add(item.aiIndex)
         source: AiItem = ai.items[item.aiIndex]
         if any(_norm(getattr(item, f)) != _norm(getattr(source, f)) for f in EDIT_FIELDS):
-            edits += 1  # modified
-    edits += len(ai.items) - len(seen)  # removed
-    edits += quality != ai.segregationQuality
-    edits += set(hazards) != set(ai.hazardFlags)
-    return edits
+            out.modified += 1
+    out.removed = len(ai.items) - len(seen)
+    out.bagLevel = int(quality != ai.segregationQuality) + int(set(hazards) != set(ai.hazardFlags))
+    return out
+
+
+def count_edits(
+    ai: AiResult | None,
+    items: list[FinalItem],
+    quality: SegregationQuality,
+    hazards: list[HazardFlag],
+) -> int:
+    return edit_breakdown(ai, items, quality, hazards).total
 
 
 def _norm(value: object) -> object:
@@ -243,7 +262,8 @@ def confirm(
         raise DomainError(422, "no_items")
     draft = store.get_waste_records([code]).get(code)
     ai = draft.aiResult if draft else None
-    edits = count_edits(ai, items, quality, hazards)
+    breakdown = edit_breakdown(ai, items, quality, hazards)
+    edits = breakdown.total
     now = clock.now()
 
     record = WasteRecord(
@@ -263,6 +283,9 @@ def confirm(
         hazardFlags=sorted(set(hazards)),
         edited=ai is None or edits > 0,
         editCount=edits,
+        itemsAdded=breakdown.added,
+        itemsRemoved=breakdown.removed,
+        itemsModified=breakdown.modified,
         source="manual" if ai is None else ("ai_edited" if edits else "ai"),
         operatorUid=operator_uid,
         processedAt=now,

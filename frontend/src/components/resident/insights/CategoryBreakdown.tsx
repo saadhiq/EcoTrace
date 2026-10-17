@@ -2,27 +2,33 @@
 
 import { useState } from "react";
 
-import { CATEGORY_ORDER, type HouseholdStats } from "@/lib/insights";
+import { CATEGORY_ORDER, type CategoryStat } from "@/lib/insights";
 
 import styles from "./insights.module.css";
 
-type Props = { stats: HouseholdStats; label: (id: string) => string };
+type Props = {
+  categories: Record<string, CategoryStat>;
+  total: number;
+  label: (id: string) => string;
+  /** Whose waste the shares are of, e.g. "your waste" / "all waste". */
+  scope?: string;
+};
 
 /**
  * Horizontal bars, one per category, in a FIXED order (colour follows the
  * category, never its rank; only validated palette neighbours touch). Every
  * row is directly labelled with name + value, so identity is never colour-alone.
  */
-export default function CategoryBreakdown({ stats, label }: Props) {
+export default function CategoryBreakdown({ categories, total: totalQuantity, label, scope = "your waste" }: Props) {
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
-  const max = Math.max(1, ...CATEGORY_ORDER.map((c) => stats.categories[c]?.quantity ?? 0));
-  const total = stats.totalQuantity || 1;
+  const max = Math.max(1, ...CATEGORY_ORDER.map((c) => categories[c]?.quantity ?? 0));
+  const total = totalQuantity || 1;
 
   return (
     <div style={{ position: "relative" }} onMouseLeave={() => setHover(null)}>
       <ul className={styles.bars} data-testid="breakdown" aria-label="Waste by category (item quantity)">
         {CATEGORY_ORDER.map((id) => {
-          const stat = stats.categories[id] ?? { items: 0, quantity: 0 };
+          const stat = categories[id] ?? { items: 0, quantity: 0 };
           const pct = Math.round((stat.quantity / total) * 100);
           const width = stat.quantity ? Math.max(2, (stat.quantity / max) * 100) : 0;
           return (
@@ -30,7 +36,7 @@ export default function CategoryBreakdown({ stats, label }: Props) {
               key={id}
               className={styles.bar}
               tabIndex={0}
-              aria-label={`${label(id)}: ${stat.quantity} items, ${pct}% of your waste`}
+              aria-label={`${label(id)}: ${stat.quantity} items, ${pct}% of ${scope}`}
               data-category={id}
               data-quantity={stat.quantity}
               onMouseMove={(e) => {
@@ -55,11 +61,11 @@ export default function CategoryBreakdown({ stats, label }: Props) {
         })}
       </ul>
       {hover && (() => {
-        const stat = stats.categories[hover.id] ?? { items: 0, quantity: 0 };
+        const stat = categories[hover.id] ?? { items: 0, quantity: 0 };
         return (
           <div className={styles.tooltip} style={{ left: hover.x, top: hover.y }} role="tooltip">
             <strong>{label(hover.id)}</strong> · {stat.quantity} item{stat.quantity === 1 ? "" : "s"} ·{" "}
-            {Math.round((stat.quantity / total) * 100)}% of your waste
+            {Math.round((stat.quantity / total) * 100)}% of {scope}
             {stat.items > 0 && <> · {stat.items} kind{stat.items === 1 ? "" : "s"}</>}
           </div>
         );

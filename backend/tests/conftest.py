@@ -4,12 +4,14 @@ from fastapi.testclient import TestClient
 from app.auth import get_identity, get_user_store
 from app.deps import get_clock, get_store
 from app.main import create_app
+from app.routes.admin import get_demo_key_reader
 from app.routes.operator import get_classifier, get_photo_store
 from app.routes.residents import get_ranker, get_tip_generator
 from tests.fakes import (
     FakeClassifier,
     FakeDataStore,
     FakeIdentity,
+    FakeDemoKeyReader,
     FakePhotoStore,
     FakeRanker,
     FakeTipGenerator,
@@ -84,4 +86,5 @@ def client(
     app.dependency_overrides[get_photo_store] = lambda: photo_store
     app.dependency_overrides[get_tip_generator] = lambda: tip_generator
     app.dependency_overrides[get_ranker] = lambda: ranker
+    app.dependency_overrides[get_demo_key_reader] = lambda: FakeDemoKeyReader()
     return TestClient(app)

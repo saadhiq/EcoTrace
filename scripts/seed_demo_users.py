@@ -30,6 +30,7 @@ from app.demo_history import ensure_demo_resident_history  # noqa: E402
 from app.demo_partners import (  # noqa: E402
     DEMO_PARTNERS,
     ensure_demo_resident_consent,
+    ensure_synthetic_collector,
     ensure_synthetic_households,
     upsert_partner,
 )
@@ -105,6 +106,8 @@ def main() -> None:
     print(f"  demo collector: {'new pickup ' + created if created else 'already has a pickup today'}")
     seed_partners(store, clock, os.environ["GOOGLE_CLOUD_PROJECT"])
     print(f"  synthetic households: {ensure_synthetic_households(store, clock)} created")
+    if ensure_synthetic_collector(users):
+        print("  synthetic collector B created (users doc only, no login)")
     if ensure_demo_resident_consent(store, clock):
         print("  demo resident: data sharing turned ON (judges can turn it off)")
     queued = ensure_demo_operator_data(store, clock)

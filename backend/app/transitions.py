@@ -66,3 +66,17 @@ def advance_bag(bag: Bag, to: BagStatus, *, by: str, clock: Clock, **updates: An
     return bag.model_copy(
         update={"status": to, "statusHistory": [*bag.statusHistory, event], **updates}
     )
+
+
+def reassign_pickup(pickup: Pickup, collector_uid: str, *, by: str, clock: Clock, any_scanned: bool) -> Pickup:
+    """Admin: give an ASSIGNED pickup to another collector (status unchanged).
+
+    Only before any bag is scanned (the bags are not in anyone's van yet).
+    Logged in statusHistory as an `assigned` event by the admin.
+    """
+    if pickup.status != P.ASSIGNED or any_scanned:
+        raise DomainError(409, "not_reassignable")
+    event = StatusEvent(status=P.ASSIGNED, at=clock.now(), by=by)
+    return pickup.model_copy(
+        update={"collectorUid": collector_uid, "assignedAt": clock.now(), "statusHistory": [*pickup.statusHistory, event]}
+    )

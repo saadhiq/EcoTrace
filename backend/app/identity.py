@@ -42,6 +42,10 @@ class IdentityAdmin(Protocol):
 
     def create_custom_token(self, uid: str) -> str: ...
 
+    def create_staff_user(self, email: str, display_name: str) -> tuple[str, str]:
+        """Create a password-less user; returns (uid, one-time password-setup link)."""
+        ...
+
 
 class FirebaseIdentityAdmin:
     """IdentityAdmin backed by the Firebase Admin SDK."""
@@ -90,6 +94,15 @@ class FirebaseIdentityAdmin:
     def set_role(self, uid: str, role: Role) -> None:
         # Replaces all custom claims, which also clears any tampered extras.
         auth.set_custom_user_claims(uid, {"role": role.value}, app=self._app)
+
+    def create_staff_user(self, email: str, display_name: str) -> tuple[str, str]:
+        from app.errors import DomainError
+
+        try:
+            record = auth.create_user(email=email, display_name=display_name, app=self._app)
+        except auth.EmailAlreadyExistsError as exc:
+            raise DomainError(409, "email_exists") from exc
+        return record.uid, auth.generate_password_reset_link(email, app=self._app)
 
     def create_custom_token(self, uid: str) -> str:
         token = auth.create_custom_token(uid, app=self._app)

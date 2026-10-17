@@ -196,17 +196,23 @@ def test_partner_rate_limit(client: TestClient, synthetic: dict) -> None:
     assert client.get("/partner/v1/segments", headers=key_headers(synthetic["ecohome-store"])).status_code == 200
 
 
+def withdraw(store: FakeDataStore, hid: str) -> None:
+    h = store.households[hid]
+    store.households[hid] = h.model_copy(update={"consent": h.consent.model_copy(update={"dataSharing": False})})
+
+
 def test_segments_k_threshold_and_consent(store: FakeDataStore, synthetic: dict) -> None:
     result = segments(store)
-    assert result.consentingHouseholds == 23
+    assert result.consentingHouseholds == 43  # 50 synthetic, 7 without consent
     visible = {s.name: s.households for s in result.segments}
-    assert visible == {"beverage-plastic-heavy": 6, "organic-heavy-family": 5, "well-segregated": 5}
-    assert all(n >= K_MIN for n in visible.values())
-    assert result.suppressedSegments == 3
-    # Withdraw consent for one organic household -> 4 left -> suppressed.
-    hid = next(h for h, s in store.stats.items() if s.segment == "organic-heavy-family" and store.households[h].consent.dataSharing)
-    store.households[hid] = store.households[hid].model_copy(update={"consent": store.households[hid].consent.model_copy(update={"dataSharing": False})})
-    assert "organic-heavy-family" not in {s.name for s in segments(store).segments}
+    assert visible["mixed-household"] == K_MIN and visible["beverage-plastic-heavy"] == 9
+    assert all(n >= K_MIN for n in visible.values()) and result.suppressedSegments == 0
+    # Withdraw consent for one mixed household -> 4 left -> suppressed, never shown with < K.
+    hid = next(h for h, s in store.stats.items() if s.segment == "mixed-household" and store.households[h].consent.dataSharing)
+    withdraw(store, hid)
+    after = segments(store)
+    assert "mixed-household" not in {s.name for s in after.segments}
+    assert after.suppressedSegments == 1 and after.consentingHouseholds == 42
 
 
 def test_segments_response_has_no_household_data(client: TestClient, synthetic: dict) -> None:
@@ -217,21 +223,31 @@ def test_segments_response_has_no_household_data(client: TestClient, synthetic: 
 def test_segment_recommendations_only_own_catalog(client: TestClient, synthetic: dict) -> None:
     url = "/partner/v1/segments/beverage-plastic-heavy/recommendations"
     gc = client.get(url, headers=key_headers(synthetic["greencart-lk"])).json()
-    assert gc["households"] == 6 and gc["recommendations"]
+    assert gc["households"] == 9 and gc["recommendations"]
     assert all(r["sku"].startswith("GC-") for r in gc["recommendations"])
     assert "each on average" in gc["recommendations"][0]["reason"]
     eh = client.get(url, headers=key_headers(synthetic["ecohome-store"])).json()
     assert all(r["sku"].startswith("EH-") for r in eh["recommendations"])
-    suppressed = "/partner/v1/segments/e-waste-disposer/recommendations"
-    assert client.get(suppressed, headers=key_headers(synthetic["greencart-lk"])).status_code == 404
+    assert client.get("/partner/v1/segments/e-waste-disposer/recommendations",
+                      headers=key_headers(synthetic["ecohome-store"])).status_code == 200
     assert client.get("/partner/v1/segments/nope/recommendations", headers=key_headers(synthetic["greencart-lk"])).status_code == 404
 
 
+def test_suppressed_segment_recommendations_404(client: TestClient, synthetic: dict, store: FakeDataStore) -> None:
+    hid = next(h for h, s in store.stats.items() if s.segment == "mixed-household" and store.households[h].consent.dataSharing)
+    withdraw(store, hid)
+    url = "/partner/v1/segments/mixed-household/recommendations"
+    assert client.get(url, headers=key_headers(synthetic["greencart-lk"])).status_code == 404
+
+
 def test_zone_insights_k_threshold(client: TestClient, synthetic: dict, store: FakeDataStore) -> None:
+    hid = next(h for h, hh in store.households.items() if hh.zone == "rajagiriya" and hh.consent.dataSharing)
+    withdraw(store, hid)  # rajagiriya: 5 -> 4 consenting -> suppressed
     body = client.get("/partner/v1/insights", headers=key_headers(synthetic["greencart-lk"])).json()
     zones = {z["zone"]: z for z in body["zones"]}
     assert zones["colombo-05"]["suppressed"] is False and zones["colombo-05"]["households"] >= K_MIN
-    assert zones["nugegoda"]["suppressed"] is True and zones["nugegoda"]["months"] == []
+    assert zones["rajagiriya"]["suppressed"] is True and zones["rajagiriya"]["months"] == []
+    assert zones["rajagiriya"]["households"] is None
     for z in body["zones"]:
         assert all(m["households"] >= K_MIN for m in z["months"])
     one = client.get("/partner/v1/insights?zone=colombo-07", headers=key_headers(synthetic["greencart-lk"])).json()

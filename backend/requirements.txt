@@ -4,3 +4,4 @@ firebase-admin==7.7.0
 google-genai==2.31.0
 google-cloud-storage==3.17.1
 python-multipart==0.0.32
+google-cloud-secret-manager==2.31.0

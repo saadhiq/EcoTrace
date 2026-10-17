@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 from app.config import allowed_origins, analyze_rate_limit, demo_rate_limit, partner_rate_limit, tips_rate_limit
 from app.errors import DomainError
 from app.ratelimit import RateLimiter
-from app.routes import auth, collector, meta, operator, partner, resident, residents
+from app.admin import TTLCache
+from app.routes import admin, auth, collector, meta, operator, partner, resident, residents
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,11 +34,12 @@ def create_app() -> FastAPI:
     app.state.analyze_limiter = RateLimiter(limit=analyze_rate_limit(), window_seconds=60)
     app.state.tips_limiter = RateLimiter(limit=tips_rate_limit(), window_seconds=60)
     app.state.partner_limiter = RateLimiter(limit=partner_rate_limit(), window_seconds=60)
+    app.state.admin_cache = TTLCache()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins(),
-        allow_methods=["GET", "POST", "PATCH", "PUT"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
     @app.exception_handler(DomainError)
@@ -56,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(collector.router, tags=["App"])
     app.include_router(operator.router, tags=["App"])
     app.include_router(residents.router, tags=["App"])
+    app.include_router(admin.router, tags=["App"])
     return app
 
 

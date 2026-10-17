@@ -104,6 +104,7 @@ used to measure AI accuracy (benchmark step).
 | `hazardFlags` | string[] | final, from the taxonomy |
 | `edited` | bool | computed **server-side**: any difference from `aiResult` (always true for manual) |
 | `editCount` | int | items added + removed + changed (name, category, material, productType, brand, quantity, recyclable), +1 if segregation quality changed, +1 if hazard flags changed |
+| `itemsAdded`, `itemsRemoved`, `itemsModified` | int \| null | split of the item edits (step 6b; null on older records, which the AI-quality panel estimates) |
 | `source` | `ai` \| `ai_edited` \| `manual` | manual records are excluded from accuracy numbers |
 | `operatorUid`, `analyzedAt`, `processedAt` | | |
 
@@ -136,6 +137,7 @@ can never drift. `scripts/backfill_stats.py` uses the same function (`app/insigh
 | `segment`, `segmentVersion` | rule-based segment (see below), `v1` |
 | `firstProcessed`, `lastProcessed` | date range covered (used in grounded reasons) |
 | `statsHash` | fingerprint of the aggregated numbers — keys the tips cache |
+| `zone`, `isSynthetic`, `realOnly` | household zone and synthetic flag (copied in `rebuild`), and `{bags, quantity, recyclableQuantity, categories}` from non-synthetic records only — lets the admin overview exclude synthetic data without extra reads |
 | `lastUpdated` | |
 
 **Eco score (0–100) — computed by our code, never by Gemini:**

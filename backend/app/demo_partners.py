@@ -14,6 +14,7 @@ from app.models import (
     Household,
     Partner,
     Role,
+    UserProfile,
     WasteItem,
     WasteRecord,
     WasteRecordStatus,
@@ -21,6 +22,8 @@ from app.models import (
 from app.partner_api import generate_key
 from app.residents import set_consent
 from app.store import DataStore
+from app.users import UserStore
+from app.zones import ZONE_IDS
 
 # (sku, name, category, replaces, ecoBenefit, price LKR)
 _P = tuple[str, str, str, list[str], str, float]
@@ -131,10 +134,19 @@ PLAN: list[tuple[str, bool]] = (
     + [("ewaste", True)] * 2 + [("ewaste", False)]
     + [("sorted", True)] * 5 + [("sorted", False)]
     + [("mixed", True)] * 2 + [("mixed", False)]
+    # Step 6b: 20 more, all consenting, so more segments/zones clear K=5.
+    + [("paper", True)] * 3 + [("ewaste", True)] * 4 + [("mixed", True)] * 3
+    + [("beverage", True)] * 3 + [("organic", True)] * 3 + [("sorted", True)] * 4
 )
 ZONE_PATTERN = ["colombo-07", "colombo-05", "colombo-07", "colombo-05", "nugegoda", "colombo-07",
                 "colombo-05", "dehiwala", "colombo-07", "colombo-05", "nugegoda", "colombo-03"]
+EXTRA_ZONES = ["nugegoda", "dehiwala", "colombo-03", "rajagiriya"]  # households 31-50
 SYNTHETIC_IDS = [f"synthetic-hh-{i:02d}" for i in range(1, len(PLAN) + 1)]
+SYNTHETIC_COLLECTOR = "synthetic-collector-b"
+
+
+def _zone(i: int) -> str:
+    return ZONE_PATTERN[i % len(ZONE_PATTERN)] if i < 30 else EXTRA_ZONES[(i - 30) % len(EXTRA_ZONES)]
 
 
 def ensure_synthetic_households(store: DataStore, clock: Clock) -> int:
@@ -147,7 +159,7 @@ def ensure_synthetic_households(store: DataStore, clock: Clock) -> int:
         quality, items = PROFILES[profile]
         household = Household(
             id=hid, ownerUid=hid, name=f"Synthetic household {i + 1:02d}", phone="+94 70 000 0000",
-            addressLine="(synthetic)", zone=ZONE_PATTERN[i % len(ZONE_PATTERN)],
+            addressLine="(synthetic)", zone=_zone(i),
             consent=Consent(dataSharing=consenting, updatedAt=clock.now()), createdAt=clock.now(), isSynthetic=True,
         )
         records = []
@@ -167,6 +179,15 @@ def ensure_synthetic_households(store: DataStore, clock: Clock) -> int:
         store.commit([], [], stats=[(hid, stats)])
         created += 1
     return created
+
+
+def ensure_synthetic_collector(users: UserStore) -> bool:
+    """A users-only collector (no login account) so admins can demo reassignment."""
+    if users.get(SYNTHETIC_COLLECTOR) is not None:
+        return False
+    users.save(UserProfile(uid=SYNTHETIC_COLLECTOR, name="Synthetic Collector B", email=None, role=Role.COLLECTOR,
+                           zones=sorted(ZONE_IDS), isSynthetic=True))
+    return True
 
 
 def ensure_demo_resident_consent(store: DataStore, clock: Clock) -> bool:

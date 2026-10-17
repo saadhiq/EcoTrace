@@ -102,6 +102,25 @@ class DataStore(Protocol):
         """Anonymous counter: partnerMetrics/{partner}/daily/{day} {kind}.{sku} += 1."""
         ...
 
+    # --- admin (step 6b) ---
+    def count_pickups(self, status: str, date_from: str, date_to: str, synthetic_only: bool = False) -> int:
+        """Firestore count() aggregation over pickups with `status` and date in [from, to]."""
+        ...
+
+    def list_all_stats(self) -> list[tuple[str, HouseholdStats]]:
+        """(householdId, stats) for every household (collection-group read)."""
+        ...
+
+    def list_quality_records(self) -> list[WasteRecord]:
+        """Confirmed records from real operator work (source ai | ai_edited | manual)."""
+        ...
+
+    def list_draft_records(self) -> list[WasteRecord]: ...
+
+    def list_pickups_by_date(self, day: str, zone: str | None = None, status: str | None = None) -> list[Pickup]: ...
+
+    def list_partner_metrics(self, partner_id: str, since_day: str) -> list[dict]: ...
+
     def save_waste_record(self, record: WasteRecord) -> None:
         """Write a draft record (analysis before confirmation)."""
         ...
@@ -293,6 +312,46 @@ class FirestoreDataStore:
     def count_swap_event(self, partner_id: str, day: str, sku: str, kind: str) -> None:
         ref = self._db.collection(PARTNER_METRICS).document(partner_id).collection("daily").document(day)
         ref.set({kind: {sku: Increment(1)}, "day": day}, merge=True)
+
+    # --- admin (step 6b) ---
+    def count_pickups(self, status: str, date_from: str, date_to: str, synthetic_only: bool = False) -> int:
+        query = self._pickups().where(filter=FieldFilter("status", "==", status))
+        if synthetic_only:
+            query = query.where(filter=FieldFilter("isSynthetic", "==", True))
+        query = query.where(filter=FieldFilter("date", ">=", date_from)).where(filter=FieldFilter("date", "<=", date_to))
+        result = query.count(alias="n").get()
+        return int(result[0][0].value)
+
+    def list_all_stats(self) -> list[tuple[str, HouseholdStats]]:
+        return [
+            (snap.reference.parent.parent.id, HouseholdStats(**snap.to_dict()))
+            for snap in self._db.collection_group(STATS).stream()
+            if snap.id == STATS_DOC
+        ]
+
+    def list_quality_records(self) -> list[WasteRecord]:
+        query = (
+            self._records()
+            .where(filter=FieldFilter("status", "==", WasteRecordStatus.CONFIRMED.value))
+            .where(filter=FieldFilter("source", "in", ["ai", "ai_edited", "manual"]))
+        )
+        return [WasteRecord(bagCode=s.id, **s.to_dict()) for s in query.stream()]
+
+    def list_draft_records(self) -> list[WasteRecord]:
+        query = self._records().where(filter=FieldFilter("status", "==", WasteRecordStatus.DRAFT.value))
+        return [WasteRecord(bagCode=s.id, **s.to_dict()) for s in query.stream()]
+
+    def list_pickups_by_date(self, day: str, zone: str | None = None, status: str | None = None) -> list[Pickup]:
+        query = self._pickups().where(filter=FieldFilter("date", "==", day))
+        if zone:
+            query = query.where(filter=FieldFilter("zone", "==", zone))
+        if status:
+            query = query.where(filter=FieldFilter("status", "==", status))
+        return [Pickup(id=s.id, **s.to_dict()) for s in query.stream()]
+
+    def list_partner_metrics(self, partner_id: str, since_day: str) -> list[dict]:
+        ref = self._db.collection(PARTNER_METRICS).document(partner_id).collection("daily")
+        return [s.to_dict() for s in ref.where(filter=FieldFilter("day", ">=", since_day)).stream()]
 
     # --- pickups ---
     def get_pickups(self, pickup_ids: list[str]) -> dict[str, Pickup]:

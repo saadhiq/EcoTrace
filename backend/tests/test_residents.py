@@ -229,7 +229,10 @@ def test_demo_history_is_synthetic_idempotent_and_rich() -> None:
     assert any(i.brand == "Elephant House" for r in records for i in r.finalItems)
     stats = store.stats["demo-resident"]
     assert stats.pickupsProcessed == 8 and stats.ecoScore == 74 and stats.points == 120
-    assert stats == compute_stats(records, clock.now()).model_copy(update={"lastUpdated": stats.lastUpdated})
+    expected = compute_stats(records, clock.now()).model_copy(
+        update={"lastUpdated": stats.lastUpdated, "zone": stats.zone, "isSynthetic": stats.isSynthetic}
+    )
+    assert stats == expected and stats.zone == "colombo-07" and stats.isSynthetic is False
 
 
 def test_demo_resident_login_seeds_history(client: TestClient, store: FakeDataStore, users: FakeUserStore) -> None:

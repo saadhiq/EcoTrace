@@ -14,7 +14,7 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Project ID / number | `ecotrace-9e406` / `55962094566` |
 | Region | `asia-south1` |
 | Cloud Run service | `ecotrace-api` → https://ecotrace-api-frl7lolcea-el.a.run.app |
-| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; custom role `projects/ecotrace-9e406/roles/ecotraceTokenSigner` (only `iam.serviceAccounts.signBlob`) bound on **itself only** for custom-token signing. Grant new roles per step, least privilege, with user approval. |
+| Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; custom role `projects/ecotrace-9e406/roles/ecotraceTokenSigner` (only `iam.serviceAccounts.signBlob`) bound on **itself only** for custom-token signing; `roles/aiplatform.user`; `roles/secretmanager.secretAccessor` on the two secrets `partner-api-key-greencart-lk` / `partner-api-key-ecohome-store` only. Grant new roles per step, least privilege, with user approval. |
 | Firestore | `(default)`, Native mode, `asia-south1`; schema + state machine in `docs/DATA_MODEL.md`; rules: clients read only their own `users` / `households` / `bags` / `pickups` (residents) and `routes` (collectors), no client writes |
 | Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
 | Photo bucket | `gs://ecotrace-9e406-bag-photos` (asia-south1, private, public access prevention, lifecycle: delete after 30 days); SA has objectCreator + objectViewer on it only |
@@ -27,7 +27,7 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 ## Auth & roles model
 
 - **Firebase custom claim `role`** (`resident | collector | operator | admin`) is the source of truth; `users/{uid}` `{name, email, role, createdAt}` mirrors it. Only the backend writes either.
-- Self sign-up → `POST /auth/register` → `resident`. It never changes an existing role. Staff accounts come only from an admin (later step) or `scripts/seed_demo_users.py`.
+- Self sign-up → `POST /auth/register` → `resident`. It never changes an existing role. Staff accounts come only from an admin (`POST /admin/staff`, real admins only) or `scripts/seed_demo_users.py`. Make a real admin with `scripts/grant_admin.py <email>` (existing Firebase user).
 - Every protected call sends `Authorization: Bearer <Firebase ID token>`. Backend: `get_current_user` (verify), `require_role(Role.X, ...)` / `require_registered` (authorise). Firebase/Firestore are behind `IdentityAdmin` / `UserStore` interfaces (`app/identity.py`, `app/users.py`) so tests use fakes (`tests/fakes.py`).
 - Demo accounts: fixed uids `demo-{role}`, no password. `POST /auth/demo/{role}` repairs the user and returns a custom token (frontend: `signInWithCustomToken`). Rate-limited per client IP (last `X-Forwarded-For` entry, in-memory per instance).
 - Frontend: `AuthProvider` (`useAuth()`), `RoleGuard` for each dashboard, `dashboardPath(role)` for redirects. Guards are UX only; the backend and Firestore rules enforce access.
@@ -44,10 +44,11 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - **Tips** (`app/ai/tips.py`, `app/residents.py`): Gemini gets ONLY `insights.tips_payload()` (aggregates). Cache in `households/{id}/tips/{lang}` keyed by `statsHash`; fallback tips are never cached. Shared Gemini client/retry lives in `app/ai/gemini.py`.
 - **Swaps** (`app/recommendations.py`): stage 1 deterministic candidates (`find_candidates`, direct item-type matches before category matches); stage 2 Gemini picks ONLY from candidates and `validate_picks` drops anything else; deterministic fallback. Gemini gets only `ranking_payload()` (aggregates + candidates). Cache keyed by `statsHash` + `catalogVersion`; deleted on consent withdrawal.
 - **Partner API** (`app/partner_api.py`, `app/routes/partner.py`, `/partner/v1`): key auth (`etp.<partner>.<random>`, SHA-256 hash stored, plain key only in Secret Manager), per-key rate limit, consenting households only, **K_MIN = 5** for every reported group. Never return household ids or per-household rows. Segments are rules in `app/segments.py` (bump `SEGMENT_VERSION` if they change).
+- **Admin** (`app/admin.py`, `app/routes/admin.py`, `/admin`): every route needs the `admin` claim. **Demo guard:** any route that creates/changes accounts, zones, partners or keys MUST depend on `deny_in_demo` (403 `demo_disabled` for the demo admin) and be added to `PROTECTED` in `tests/test_admin.py`. The demo admin may reassign only demo/synthetic households' pickups (checked in `assign_pickup`) and sees real users' emails masked. Reads (overview, ai-quality, partners) are cached 60 s in `app.state.admin_cache` (`TTLCache`); admin writes call `cache.clear()`. Pickup counts use Firestore `count()` aggregations (`DataStore.count_pickups`, indexes `(status,date)` + `(status,isSynthetic,date)`); zone/category totals come from `stats/summary` (`zone`, `isSynthetic`, `realOnly`). Reassign goes through `transitions.reassign_pickup` + the `routes` mirror. Demo partner keys are read only via `app/secrets.py` (`DEMO_PARTNER_IDS`; any other id → 404 before Secret Manager is called).
 - **Gemini endpoints:** classification (photos) is regional only; tips + swaps may retry on `global` after a regional 5xx (`generate_with_retry(..., fallback_client=)`).
 - **Never commit API keys** — also not in screenshots (Swagger shows the key in its curl example: mask it).
 - **Consent**: every `dataSharing` change (PUT consent or PATCH household) goes through `residents.consent_change()` and logs `consentHistory` in the same batch. Bump `CONSENT_TEXT_VERSION` when the explanation text changes.
-- **Synthetic data**: seeded demo history is `isSynthetic: true` (`app/demo_history.py`); exclude it from analytics/benchmarks.
+- **Synthetic data**: seeded demo history is `isSynthetic: true` (`app/demo_history.py`); exclude it from analytics/benchmarks. `app/demo_partners.py` seeds 50 synthetic households (zones incl. nugegoda/dehiwala/colombo-03/rajagiriya) and `synthetic-collector-b` (users doc only, no login, all zones).
 - Demo operator: `ensure_demo_operator_data()` queues one delivered demo pickup (2 bags) only when the warehouse queue is empty.
 - **No Firestore transactions (demo scope).** Validate, then write all related docs in **one batch** (`DataStore.commit`). Uniqueness via `create()` (households by uid, bags by code).
 - Dates for pickups are Colombo calendar days (`app/clock.py`, fixed UTC+5:30); store `"YYYY-MM-DD"`.
@@ -61,7 +62,7 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 ## Frontend data conventions
 
 - **Writes** go through `src/lib/*` API helpers (`apiFetch` with the ID token). **Live reads** use Firestore `onSnapshot` hooks in `src/lib/liveData.ts`, always filtered on the caller's uid so the rules allow them.
-- Resident pages wrap content in `ResidentPage` (guard + household load + onboarding); collector pages in `CollectorPage`; other roles use `DashboardPage`.
+- Resident pages wrap content in `ResidentPage` (guard + household load + onboarding); collector pages in `CollectorPage`; operator pages in `OperatorPage`; admin pages in `AdminPage` (guard, sub-nav, demo banner; `useAdminData` for fetch state, `Tile` for KPIs).
 - Query-param pages (static export): call `useSearchParams()` inside a `<Suspense>` boundary (e.g. `/collector/pickup?id=`).
 - QR scanning: `components/collector/ScanPanel.tsx` (`@yudiel/react-qr-scanner`). Its zxing wasm is self-hosted at `/vendor/zxing_reader.wasm`, copied from node_modules by `npm run build`/`dev` (`scripts/copy-zxing-wasm.mjs`, git-ignored). Keep camera constraints soft (`ideal` only): the library's defaults require ≥640px height and fail on 480p cameras (`overconstrained`).
 - Effects that fetch must set state in the promise callback (lint rule `react-hooks/set-state-in-effect`).
@@ -69,7 +70,8 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - Insights read live via `useHouseholdStats` / `useRecentPoints` (onSnapshot). Sinhala/Tamil text must carry `lang="si"|"ta"` (Noto fonts via next/font).
 - Operator pages wrap content in `OperatorPage` (guard + taxonomy + zone names). Photos are resized with `lib/images.ts` before upload; uploads use `apiFetch(..., { form })`. Category colors are `--cat-*` tokens (`CategoryChip`). Demo sample photos live in `public/samples/` (copies of `docs/sample-images/`, see its CREDITS.md).
 - **Static export + Hosting:** `npm run build` runs `scripts/flatten-rsc.mjs` (postbuild), which copies Next.js 16's nested route payloads (`__next.a/b.txt`) to the dotted names the client requests (`__next.a.b.txt`). Without it every client navigation 404s and falls back to a full page load.
-- Map API error `detail` codes to friendly text (`residentErrorMessage`).
+- Map API error `detail` codes to friendly text (`residentErrorMessage`, `adminErrorMessage`; `demo_disabled` → "Disabled in the public demo.").
+- **API keys in the admin UI:** masked by default (`maskKey`); *Copy* never renders the key. Screenshots must never show a revealed key.
 
 ## Frontend UI conventions
 
