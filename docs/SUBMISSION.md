@@ -8,7 +8,9 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 - [x] Deployed link (must stay up during judging): https://ecotrace-9e406.web.app (API: https://ecotrace-api-frl7lolcea-el.a.run.app)
 - [ ] Demo video (3–4 min): _TBD_
 - [ ] Pitch deck: _TBD_
-- [ ] Performance / benchmark report (in deck + `docs/`)
+- [x] Performance / benchmark report: [`benchmark/REPORT.md`](../benchmark/REPORT.md) (charts in `benchmark/results/`)
+- [x] Architecture + process-flow diagrams: [`docs/diagrams/`](diagrams/) (Mermaid source + 1920×1080 PNG)
+- [x] Project description: [`docs/DESCRIPTION.md`](DESCRIPTION.md)
 - [ ] README with setup instructions and live link
 
 ## Pitch deck slides
@@ -19,18 +21,35 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 | 2 | Problem | ☐ | |
 | 3 | Solution — EcoTrace overview | ☐ | |
 | 4 | Users & roles | ☐ | Resident, collector, warehouse operator, admin, partner |
-| 5 | Process flow | ☐ | Schedule → collect (QR) → photograph → Gemini classify → store → recommend |
-| 6 | Architecture diagram | ☐ | Firebase Hosting, Auth, Firestore, Storage, Cloud Run, Vertex AI Gemini, Secret Manager |
+| 5 | Process flow | ☐ | `docs/diagrams/process-flow.png`: schedule → collect (QR) → photograph → Gemini classify → store → recommend |
+| 6 | Architecture diagram | ☐ | `docs/diagrams/architecture.png`; Firebase Hosting, Auth, Firestore, Storage, Cloud Run, Vertex AI Gemini, Secret Manager |
 | 7 | How we use Google Cloud | ☐ | From the section below |
 | 8 | Screenshots | ☐ | `docs/screenshots/` — have: `step1-login`, `step1-{resident,collector,operator,admin}`, `step1-mobile-resident`, `step2-{onboarding,dashboard,schedule,bags-qr,mobile}`, `step3-{collector-today,scan,scan-error,handover,resident-tracker-delivered,mobile}`, `step4-{queue,analyzing,results,edited,resident-processed,mobile}`, `step5-{insights,breakdown,pickup-detail,tips-en,tips-si,tips-ta,consent,mobile}`, `step6a-{swaps,swaps-consent-off,api-docs,segments-response}`, `step6b-{overview,ai-quality,pickups,pickup-timeline,people,partners,try-api,mobile}` |
 | 9 | Gemini classification deep-dive | ☐ | Prompt rules, response schema, human review (`step4-results` vs `step4-edited`), accuracy from `aiResult` vs `finalItems` |
-| 10 | Performance / benchmark report | ☐ | Latency, cost, classification accuracy — live numbers on the admin **AI quality** panel (`step6b-ai-quality`) |
+| 10 | Performance / benchmark report | ☐ | [`benchmark/REPORT.md`](../benchmark/REPORT.md): Gemini avg 2.59 s / p95 3.44 s, 0 invalid outputs, ≈ US$0.006 per bag; `/health` 168.8 req/s at 20 users, p95 163 ms, 0 errors; charts `benchmark/results/{gemini-latency,health-load}.png` |
 | 11 | Privacy (opt-in, anonymization) | ☐ | Consent off by default, plain-language explanation, logged history (`step5-consent`); tips use aggregates only; photos auto-deleted after 30 days |
 | 12 | Impact & roadmap | ☐ | Partner API (live), BigQuery ML clustering, differential privacy for counts |
 
 ## For judges
 
 Open https://ecotrace-9e406.web.app → **Try a demo account** → pick any role (no password). Accounts are shared; the demo resident always has a household, bags and an upcoming pickup ready, and the **demo collector always has a pickup to collect today** (both repaired on every demo sign-in, never wiped). On the collector's pickup screen, **Simulate scan** stands in for a printed QR label. The **demo operator** always has a bag in the warehouse queue and can use a **sample photo** to try Gemini. The **demo admin** can view everything (overview, AI quality, pickups with timelines, people, partners, the demo partner key and a *Try the partner API* panel) and reassign demo pickups; creating or changing accounts, partners and keys shows *Disabled in the public demo*. Or sign up to go through onboarding yourself.
+
+## Benchmark & final checks (2026-10-17)
+
+Full report: [`benchmark/REPORT.md`](../benchmark/REPORT.md). Free-tier scope: no extra Gemini calls were made for
+the report. Gemini figures come from the live runs, and the load test hits `/health` only.
+
+| | |
+|---|---|
+| Gemini classification latency (live, n = 5) | avg **2.59 s**, p95 **3.44 s**; 0 invalid outputs; forced failure → manual fallback works |
+| Estimated Gemini cost | ≈ **US$0.006 per bag photo** (~US$6 per 1,000 bags; third-party pricing, see report) |
+| Cloud Run `/health`, 20 concurrent users × 30 s | **5,064 requests, 168.8 req/s, 0 errors**, p50 112 ms / p95 163 ms |
+| Live smoke test of the full chain | resident → collector → warehouse → Gemini → insights → admin → partner API: **all pass**; 4/4 one-click demo logins land on screens with data |
+| Repo | public; full-history scan for the partner keys and common secret patterns: **0 hits** |
+
+Development and smoke-test classifications are flagged `isTest`, so they don't count in insights or the AI-quality
+panel. That panel therefore starts empty and fills with real operator corrections, including judges' runs.
+Cloud Run stays at `min-instances 0` (free tier): the first request after an idle period takes a few seconds.
 
 ## Privacy design (for the deck)
 
@@ -168,3 +187,4 @@ _Fill in as each piece is built._
 | 5 | Resident insights: live eco score (transparent formula), points ledger, category breakdown + trend (validated palette), pickup item history, Gemini tips in English/Sinhala/Tamil cached by stats, opt-in consent with logged history, 8 synthetic demo pickups (`isSynthetic`), deploy traffic safety check | ✅ |
 | 6a | Swaps + partner API: rule-based segments in stats, deterministic candidates + Gemini ranking with SKU validation and fallback, consent-gated swaps card with anonymous impression/click counters, Partner API v1 (hashed keys in Secret Manager, per-key rate limit, K ≥ 5 suppression, OpenAPI docs), 2 fictional partners × 20 products, 30 synthetic households; trend by processed date; tips global fallback | ✅ |
 | 6b | Admin dashboard: role-based admin API on Cloud Run with a demo guard (view-only for accounts/partners/keys), Firestore `count()` aggregation queries + 60 s cache, overview with synthetic toggle, AI-quality panel (correction rate, p95 latency, low confidence), pickups table + timeline drawer + reassign via the state machine, people + staff creation (setup link), partners engagement + demo key from Secret Manager + Try the partner API; 20 more synthetic households in 4 new zones + synthetic collector B | ✅ |
+| 7 | Final sprint: `isTest` flag and demo-data cleanup, live smoke test of the full chain, demo login check, history secret scan, README (live, one-click demo, architecture), FREEZE note, Mermaid diagrams, DESCRIPTION.md, performance report (live Gemini metrics, `/health` load test, charts) | ✅ |

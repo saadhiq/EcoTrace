@@ -1,0 +1,174 @@
+{
+  "summary": {
+    "records": 7,
+    "analyzed": 5,
+    "allAreTestRuns": true,
+    "avgLatencyMs": 2593.4,
+    "p95LatencyMs": 3438,
+    "minLatencyMs": 1815,
+    "maxLatencyMs": 3438,
+    "failures": 1,
+    "invalidOutputs": 0,
+    "manualFallbacks": 2,
+    "itemsPerBag": 3.8,
+    "lowConfidenceShare": 0.0,
+    "models": [
+      "gemini-3.5-flash"
+    ]
+  },
+  "records": [
+    {
+      "bag": "ECO-6QF7-HZ",
+      "status": "confirmed",
+      "source": "ai",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": 1815,
+      "aiError": null,
+      "aiItems": 2,
+      "finalItems": 2,
+      "editCount": 0,
+      "categories": [
+        "plastic",
+        "metal"
+      ],
+      "confidences": [
+        0.9,
+        0.95
+      ],
+      "segregation": "mixed"
+    },
+    {
+      "bag": "ECO-DFQY-92",
+      "status": "confirmed",
+      "source": "ai",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": 2796,
+      "aiError": null,
+      "aiItems": 5,
+      "finalItems": 5,
+      "editCount": 0,
+      "categories": [
+        "plastic",
+        "plastic",
+        "plastic",
+        "plastic",
+        "metal"
+      ],
+      "confidences": [
+        0.95,
+        0.9,
+        0.9,
+        0.8,
+        0.95
+      ],
+      "segregation": "mixed"
+    },
+    {
+      "bag": "ECO-DRFH-CH",
+      "status": "confirmed",
+      "source": "ai_edited",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": 2574,
+      "aiError": null,
+      "aiItems": 5,
+      "finalItems": 5,
+      "editCount": 4,
+      "categories": [
+        "metal",
+        "plastic",
+        "plastic",
+        "plastic",
+        "plastic"
+      ],
+      "confidences": [
+        0.9,
+        0.85,
+        0.8,
+        0.75,
+        0.8
+      ],
+      "segregation": "mixed"
+    },
+    {
+      "bag": "ECO-EFPN-PE",
+      "status": "confirmed",
+      "source": "ai_edited",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": 3438,
+      "aiError": null,
+      "aiItems": 4,
+      "finalItems": 1,
+      "editCount": 5,
+      "categories": [
+        "plastic",
+        "metal",
+        "paper_cardboard",
+        "organic"
+      ],
+      "confidences": [
+        0.95,
+        0.9,
+        0.9,
+        0.95
+      ],
+      "segregation": "poor"
+    },
+    {
+      "bag": "ECO-K3TG-XW",
+      "status": "confirmed",
+      "source": "manual",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": null,
+      "aiError": "unavailable",
+      "aiItems": 0,
+      "finalItems": 1,
+      "editCount": 1,
+      "categories": [],
+      "confidences": [],
+      "segregation": null
+    },
+    {
+      "bag": "ECO-PWE7-ZV",
+      "status": "confirmed",
+      "source": "ai_edited",
+      "isTest": true,
+      "model": "gemini-3.5-flash",
+      "latencyMs": 2344,
+      "aiError": null,
+      "aiItems": 3,
+      "finalItems": 1,
+      "editCount": 4,
+      "categories": [
+        "e_waste",
+        "e_waste",
+        "e_waste"
+      ],
+      "confidences": [
+        0.95,
+        0.9,
+        0.9
+      ],
+      "segregation": "good"
+    },
+    {
+      "bag": "ECO-XGYA-ZK",
+      "status": "confirmed",
+      "source": "manual",
+      "isTest": true,
+      "model": null,
+      "latencyMs": null,
+      "aiError": null,
+      "aiItems": 0,
+      "finalItems": 1,
+      "editCount": 1,
+      "categories": [],
+      "confidences": [],
+      "segregation": null
+    }
+  ]
+}
