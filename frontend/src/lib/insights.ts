@@ -158,3 +158,32 @@ export const insightsApi = {
       token: await user.getIdToken(),
     }),
 };
+
+// --- sustainable swaps ---
+
+export type SwapPick = {
+  sku: string;
+  partnerId: string;
+  partnerName: string;
+  name: string;
+  category: string;
+  ecoBenefit: string;
+  price: number;
+  url: string;
+  reason: string;
+};
+export type SwapsResponse = {
+  picks: SwapPick[];
+  source: "gemini" | "cache" | "fallback" | "none";
+  model: string | null;
+  latencyMs: number | null;
+};
+
+export const swapsApi = {
+  list: async (user: User) => apiFetch<SwapsResponse>("/residents/me/swaps", { token: await user.getIdToken() }),
+  click: async (user: User, sku: string) =>
+    apiFetch<{ url: string }>(`/residents/me/swaps/${encodeURIComponent(sku)}/click`, {
+      method: "POST",
+      token: await user.getIdToken(),
+    }),
+};

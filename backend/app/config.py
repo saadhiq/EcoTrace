@@ -48,6 +48,11 @@ def gemini_tips_timeout_s() -> float:
     return float(os.environ.get("GEMINI_TIPS_TIMEOUT_S", "10"))
 
 
+def partner_rate_limit() -> int:
+    """Partner API requests per key per minute (PARTNER_RATE_LIMIT_PER_MIN)."""
+    return int(os.environ.get("PARTNER_RATE_LIMIT_PER_MIN", "60"))
+
+
 def tips_rate_limit() -> int:
     """Max Gemini tip generations per resident per minute (TIPS_RATE_LIMIT_PER_MIN)."""
     return int(os.environ.get("TIPS_RATE_LIMIT_PER_MIN", "10"))

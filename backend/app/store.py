@@ -7,19 +7,22 @@ exists) and multi-document updates go through one atomic batch write.
 from typing import Protocol
 
 from google.api_core.exceptions import AlreadyExists, Conflict
-from google.cloud.firestore import FieldFilter
+from google.cloud.firestore import FieldFilter, Increment
 
 from app.firebase import firestore_client
 from app.models import (
     Bag,
     BagStatus,
+    CatalogItem,
     ConsentEntry,
     Household,
     HouseholdStats,
     LedgerEntry,
+    Partner,
     Pickup,
     PickupStatus,
     RouteStop,
+    SwapsCache,
     TipsCache,
     WasteRecord,
     WasteRecordStatus,
@@ -36,6 +39,9 @@ STATS, STATS_DOC = "stats", "summary"
 LEDGER = "pointsLedger"
 TIPS = "tips"
 CONSENT_HISTORY = "consentHistory"
+SWAPS, SWAPS_DOC = "swaps", "current"
+PARTNERS, CATALOG = "partners", "catalog"
+PARTNER_METRICS = "partnerMetrics"
 
 
 class DataStore(Protocol):
@@ -72,6 +78,29 @@ class DataStore(Protocol):
     def save_tips(self, household_id: str, cache: TipsCache) -> None: ...
 
     def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]: ...
+
+    # --- partners & swaps (step 6a) ---
+    def get_partner(self, partner_id: str) -> Partner | None: ...
+
+    def list_partners(self) -> list[Partner]: ...
+
+    def list_catalog(self, partner_id: str) -> list[CatalogItem]: ...
+
+    def save_partner(self, partner: Partner, catalog: list[CatalogItem]) -> None: ...
+
+    def list_consenting_households(self) -> list[Household]: ...
+
+    def get_stats_many(self, household_ids: list[str]) -> dict[str, HouseholdStats]: ...
+
+    def get_swaps(self, household_id: str) -> SwapsCache | None: ...
+
+    def save_swaps(self, household_id: str, cache: SwapsCache) -> None: ...
+
+    def delete_swaps(self, household_id: str) -> None: ...
+
+    def count_swap_event(self, partner_id: str, day: str, sku: str, kind: str) -> None:
+        """Anonymous counter: partnerMetrics/{partner}/daily/{day} {kind}.{sku} += 1."""
+        ...
 
     def save_waste_record(self, record: WasteRecord) -> None:
         """Write a draft record (analysis before confirmation)."""
@@ -215,6 +244,55 @@ class FirestoreDataStore:
     def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]:
         query = self._sub(household_id, CONSENT_HISTORY).order_by("at", direction="DESCENDING").limit(limit)
         return [ConsentEntry(**snap.to_dict()) for snap in query.stream()]
+
+    # --- partners & swaps (step 6a) ---
+    def _partners(self):  # noqa: ANN202
+        return self._db.collection(PARTNERS)
+
+    def get_partner(self, partner_id: str) -> Partner | None:
+        snap = self._partners().document(partner_id).get()
+        return Partner(id=snap.id, **snap.to_dict()) if snap.exists else None
+
+    def list_partners(self) -> list[Partner]:
+        return [Partner(id=s.id, **s.to_dict()) for s in self._partners().stream()]
+
+    def list_catalog(self, partner_id: str) -> list[CatalogItem]:
+        docs = self._partners().document(partner_id).collection(CATALOG).stream()
+        return [CatalogItem(sku=s.id, **s.to_dict()) for s in docs]
+
+    def save_partner(self, partner: Partner, catalog: list[CatalogItem]) -> None:
+        batch = self._db.batch()
+        ref = self._partners().document(partner.id)
+        batch.set(ref, to_doc(partner, "id"))
+        for item in catalog:
+            batch.set(ref.collection(CATALOG).document(item.sku), to_doc(item, "sku"))
+        batch.commit()
+
+    def list_consenting_households(self) -> list[Household]:
+        query = self._households().where(filter=FieldFilter("consent.dataSharing", "==", True))
+        return [Household(id=s.id, **s.to_dict()) for s in query.stream()]
+
+    def get_stats_many(self, household_ids: list[str]) -> dict[str, HouseholdStats]:
+        refs = [self._sub(h, STATS).document(STATS_DOC) for h in household_ids]
+        out = {}
+        for snap in self._db.get_all(refs):
+            if snap.exists:
+                out[snap.reference.parent.parent.id] = HouseholdStats(**snap.to_dict())
+        return out
+
+    def get_swaps(self, household_id: str) -> SwapsCache | None:
+        snap = self._sub(household_id, SWAPS).document(SWAPS_DOC).get()
+        return SwapsCache(**snap.to_dict()) if snap.exists else None
+
+    def save_swaps(self, household_id: str, cache: SwapsCache) -> None:
+        self._sub(household_id, SWAPS).document(SWAPS_DOC).set(cache.model_dump(mode="python"))
+
+    def delete_swaps(self, household_id: str) -> None:
+        self._sub(household_id, SWAPS).document(SWAPS_DOC).delete()
+
+    def count_swap_event(self, partner_id: str, day: str, sku: str, kind: str) -> None:
+        ref = self._db.collection(PARTNER_METRICS).document(partner_id).collection("daily").document(day)
+        ref.set({kind: {sku: Increment(1)}, "day": day}, merge=True)
 
     # --- pickups ---
     def get_pickups(self, pickup_ids: list[str]) -> dict[str, Pickup]:

@@ -161,3 +161,34 @@ def test_non_json_output_is_invalid() -> None:
     with pytest.raises(AiError) as err:
         clf.classify(IMAGE)
     assert err.value.kind == "invalid_output"
+
+
+# --- tips: regional 5xx -> retry on the global endpoint (classification never does) ---
+
+
+def test_server_error_retries_on_global_endpoint_for_tips() -> None:
+    from app.ai.gemini import generate_with_retry
+
+    regional = FakeModels([errors.ServerError(503, {})])
+    global_ = FakeModels([response(GOOD)])
+    out = generate_with_retry(SimpleNamespace(models=regional), "m", ["x"], None, lambda _: None,
+                              fallback_client=SimpleNamespace(models=global_))
+    assert out.model_version == "gemini-test-001"
+    assert (len(regional.calls), len(global_.calls)) == (1, 1)
+
+
+def test_timeout_retries_regionally_even_with_global_fallback() -> None:
+    from app.ai.gemini import generate_with_retry
+
+    regional = FakeModels([httpx.ReadTimeout("slow"), response(GOOD)])
+    global_ = FakeModels([])
+    generate_with_retry(SimpleNamespace(models=regional), "m", ["x"], None, lambda _: None,
+                        fallback_client=SimpleNamespace(models=global_))
+    assert (len(regional.calls), len(global_.calls)) == (2, 0)
+
+
+def test_classifier_has_no_global_fallback() -> None:
+    clf, models, _ = make([errors.ServerError(503, {}), response(GOOD)])
+    assert clf.classify(IMAGE).result.items
+    assert len(models.calls) == 2  # both attempts on the regional client (photos stay in-region)
+    assert not hasattr(clf, "_global")

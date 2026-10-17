@@ -5,12 +5,13 @@ from app.auth import get_identity, get_user_store
 from app.deps import get_clock, get_store
 from app.main import create_app
 from app.routes.operator import get_classifier, get_photo_store
-from app.routes.residents import get_tip_generator
+from app.routes.residents import get_ranker, get_tip_generator
 from tests.fakes import (
     FakeClassifier,
     FakeDataStore,
     FakeIdentity,
     FakePhotoStore,
+    FakeRanker,
     FakeTipGenerator,
     FakeUserStore,
     FixedClock,
@@ -53,6 +54,11 @@ def tip_generator() -> FakeTipGenerator:
 
 
 @pytest.fixture
+def ranker() -> FakeRanker:
+    return FakeRanker()
+
+
+@pytest.fixture
 def client(
     monkeypatch: pytest.MonkeyPatch,
     identity: FakeIdentity,
@@ -62,11 +68,13 @@ def client(
     classifier: FakeClassifier,
     photo_store: FakePhotoStore,
     tip_generator: FakeTipGenerator,
+    ranker: FakeRanker,
 ) -> TestClient:
     monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:3000")
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_MIN", "3")
     monkeypatch.setenv("ANALYZE_RATE_LIMIT_PER_MIN", "5")
     monkeypatch.setenv("TIPS_RATE_LIMIT_PER_MIN", "50")
+    monkeypatch.setenv("PARTNER_RATE_LIMIT_PER_MIN", "4")
     app = create_app()
     app.dependency_overrides[get_identity] = lambda: identity
     app.dependency_overrides[get_user_store] = lambda: users
@@ -75,4 +83,5 @@ def client(
     app.dependency_overrides[get_classifier] = lambda: classifier
     app.dependency_overrides[get_photo_store] = lambda: photo_store
     app.dependency_overrides[get_tip_generator] = lambda: tip_generator
+    app.dependency_overrides[get_ranker] = lambda: ranker
     return TestClient(app)

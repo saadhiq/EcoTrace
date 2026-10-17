@@ -16,7 +16,16 @@ from app.models import (
     UserProfile,
     WasteRecord,
 )
-from app.models import ConsentEntry, HouseholdStats, LedgerEntry, TipsCache, WasteRecordStatus
+from app.models import (
+    CatalogItem,
+    ConsentEntry,
+    HouseholdStats,
+    LedgerEntry,
+    Partner,
+    SwapsCache,
+    TipsCache,
+    WasteRecordStatus,
+)
 
 
 class FixedClock:
@@ -43,6 +52,10 @@ class FakeDataStore:
         self.ledger: dict[str, dict[str, LedgerEntry]] = {}
         self.tips: dict[tuple[str, str], TipsCache] = {}
         self.consent: dict[str, list[ConsentEntry]] = {}
+        self.partners: dict[str, Partner] = {}
+        self.catalogs: dict[str, dict[str, CatalogItem]] = {}
+        self.swaps: dict[str, SwapsCache] = {}
+        self.events: dict[tuple[str, str, str, str], int] = {}
         self.commits = 0
         self._ids = itertools.count(1)
         # Codes create_bags() should treat as already taken (collision tests).
@@ -104,6 +117,39 @@ class FakeDataStore:
 
     def list_consent_history(self, household_id: str, limit: int = 10) -> list[ConsentEntry]:
         return sorted(self.consent.get(household_id, []), key=lambda e: e.at, reverse=True)[:limit]
+
+    # --- partners & swaps ---
+    def get_partner(self, partner_id: str) -> Partner | None:
+        return self.partners.get(partner_id)
+
+    def list_partners(self) -> list[Partner]:
+        return list(self.partners.values())
+
+    def list_catalog(self, partner_id: str) -> list[CatalogItem]:
+        return list(self.catalogs.get(partner_id, {}).values())
+
+    def save_partner(self, partner: Partner, catalog: list[CatalogItem]) -> None:
+        self.partners[partner.id] = partner
+        self.catalogs.setdefault(partner.id, {}).update({i.sku: i for i in catalog})
+
+    def list_consenting_households(self) -> list[Household]:
+        return [h for h in self.households.values() if h.consent.dataSharing]
+
+    def get_stats_many(self, household_ids: list[str]) -> dict[str, HouseholdStats]:
+        return {h: self.stats[h] for h in household_ids if h in self.stats}
+
+    def get_swaps(self, household_id: str) -> SwapsCache | None:
+        return self.swaps.get(household_id)
+
+    def save_swaps(self, household_id: str, cache: SwapsCache) -> None:
+        self.swaps[household_id] = cache
+
+    def delete_swaps(self, household_id: str) -> None:
+        self.swaps.pop(household_id, None)
+
+    def count_swap_event(self, partner_id: str, day: str, sku: str, kind: str) -> None:
+        key = (partner_id, day, kind, sku)
+        self.events[key] = self.events.get(key, 0) + 1
 
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         return self.pickups.get(pickup_id)
@@ -297,3 +343,23 @@ class FakeTipGenerator:
             raise self.error
         tips = [Tip(title=f"{lang} tip {i}", body=f"Do thing {i}.", category="plastic") for i in range(1, 4)]
         return tips, 321
+
+
+class FakeRanker:
+    """Returns `response` as Gemini's raw ranking, or raises `error`."""
+
+    model = "fake-gemini"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.error: Exception | None = None
+        self.response: dict | None = None  # None -> pick the first two candidates
+
+    def rank(self, payload: dict):  # noqa: ANN201
+        self.calls.append(payload)
+        if self.error is not None:
+            raise self.error
+        if self.response is not None:
+            return self.response, 111
+        picks = [{"sku": c["sku"], "reason": f"Because of {c['sku']}."} for c in payload["candidates"][:2]]
+        return {"picks": picks}, 111

@@ -182,7 +182,7 @@ def test_consent_is_off_by_default_and_changes_are_logged(
 ) -> None:
     headers = warehouse["home"]["headers"]
     view = client.get("/households/me/consent", headers=headers).json()
-    assert view["dataSharing"] is False and view["history"] == [] and view["textVersion"] == "v1"
+    assert view["dataSharing"] is False and view["history"] == [] and view["textVersion"] == "v2"
 
     on = client.put("/households/me/consent", json={"dataSharing": True}, headers=headers).json()
     assert on["dataSharing"] is True and len(on["history"]) == 1

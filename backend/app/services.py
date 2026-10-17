@@ -96,6 +96,8 @@ def update_household(
         if change is not None:
             updated, entry = change
     store.commit([], [], households=[updated], consent=[(uid, entry)] if entry else None)
+    if entry is not None and not entry.value:
+        store.delete_swaps(uid)
     return updated
 
 

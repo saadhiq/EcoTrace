@@ -4,7 +4,7 @@ Traceable household waste collection, built for the Google Cloud **AI Builder Cu
 
 Residents schedule pickups, collectors scan each bag's QR code, warehouse operators photograph bag contents, and **Gemini** classifies the items. Results are stored per household in **Firestore**, and opt-in, anonymized recommendations are served by an API on **Cloud Run**.
 
-> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing) are live. The partner API is next.
+> Status: auth, the **resident flow** (onboarding, bag QR codes, scheduling with a live tracker) and the **collector flow** (accept, scan bags with the phone camera, complete, hand over at the warehouse) and the **warehouse operator flow with Gemini** (photograph a bag → AI item list → human review → processed) and **resident insights** (eco score, points, category breakdown, Gemini tips in English/Sinhala/Tamil, opt-in data sharing), **sustainable-swap recommendations** and the **partner API** are live. An admin console is next.
 
 **Try it:** open the web app and click **Try a demo account** — one click signs you in as a resident, collector, warehouse operator or admin (no password). The demo resident already has a household, bags and an upcoming pickup.
 
@@ -81,6 +81,21 @@ Sample photos: Wikimedia Commons, see [docs/sample-images/CREDITS.md](docs/sampl
 |---|---|---|
 | ![Insights](docs/screenshots/step5-insights.png) | ![Tips in Sinhala](docs/screenshots/step5-tips-si.png) | ![Consent](docs/screenshots/step5-consent.png) |
 
+## Sustainable swaps & partner API
+
+- **Swaps for residents (with consent):** partner products matched to what the household actually throws away.
+  A deterministic step finds candidate products; **Gemini** picks up to 4 **from those candidates only** and explains
+  each with the household's own numbers. Hallucinated products are dropped; a deterministic ranking is the fallback.
+- **Partner API v1** (`/partner/v1`, `X-API-Key`): anonymised **segments** (rule-based, e.g. *beverage-plastic heavy*),
+  the partner's products that fit a segment, and category trends by zone. Only consenting households count, and any
+  group smaller than **5 households is suppressed**. Try it in the interactive docs:
+  **https://ecotrace-api-frl7lolcea-el.a.run.app/docs** → *Authorize* → *Try it out* (demo key: ask the team / admin
+  console).
+
+| Swaps | Partner API (OpenAPI docs) |
+|---|---|
+| ![Swaps](docs/screenshots/step6a-swaps.png) | ![Segments response](docs/screenshots/step6a-segments-response.png) |
+
 ## Roles & auth
 
 - Firebase Authentication; the user's **role is a Firebase custom claim** (`resident`, `collector`, `operator`, `admin`), mirrored in Firestore `users/{uid}`.
@@ -105,6 +120,8 @@ Sample photos: Wikimedia Commons, see [docs/sample-images/CREDITS.md](docs/sampl
 | `POST /residents/me/tips?lang=en\|si\|ta` | resident | 3 Gemini tips from aggregated stats (cached) |
 | `GET /residents/me/pickups/{id}/details` | resident | Items found per bag (no photos) |
 | `GET`/`PUT /households/me/consent` | resident | Data-sharing consent + history |
+| `GET /residents/me/swaps` · `POST /residents/me/swaps/{sku}/click` | resident (consent) | Personal swaps; anonymous click count |
+| `GET /partner/v1/segments` · `/segments/{name}/recommendations` · `/insights?zone=` | partner (`X-API-Key`) | Anonymised segments (K ≥ 5), fitting products, zone trends |
 | `GET /operator/queue` · `GET /operator/bags/{code}` | operator | Warehouse queue; bag + draft analysis |
 | `POST /operator/bags/{code}/analyze` | operator | 1–3 photos → Gemini structured result (draft) |
 | `POST /operator/bags/{code}/confirm` | operator | Final items → bag processed (last bag → pickup processed) |

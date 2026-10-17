@@ -84,6 +84,8 @@ class GeminiTipGenerator:
         self._types = types
         self.model = config.gemini_model()
         self._client = make_client(config.gemini_tips_timeout_s())
+        # Tips carry aggregates only, so a regional 5xx may retry on the global endpoint.
+        self._global = make_client(config.gemini_tips_timeout_s(), location="global")
         self._sleep = sleep
 
     def generate(self, payload: dict, lang: str) -> tuple[list[Tip], int]:
@@ -101,7 +103,10 @@ class GeminiTipGenerator:
             thinking_config=thinking_config(types),
         )
         started = time.perf_counter()
-        response = generate_with_retry(self._client, self.model, [prompt], generation_config, self._sleep, RETRY_BACKOFF_S)
+        response = generate_with_retry(
+            self._client, self.model, [prompt], generation_config, self._sleep, RETRY_BACKOFF_S,
+            fallback_client=self._global,
+        )
         latency_ms = int((time.perf_counter() - started) * 1000)
         try:
             data = json.loads(response.text or "")

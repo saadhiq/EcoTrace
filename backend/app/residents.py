@@ -15,7 +15,7 @@ from app.ratelimit import RateLimiter
 from app.store import DataStore
 
 # Bump when the consent explanation shown to residents changes.
-CONSENT_TEXT_VERSION = "v1"
+CONSENT_TEXT_VERSION = "v2"  # v2: partner segments (K>=5) + personal swaps
 
 TipsSource = Literal["gemini", "cache", "fallback", "starter"]
 
@@ -154,6 +154,8 @@ def set_consent(store: DataStore, clock: Clock, household: Household, value: boo
         return household
     updated, entry = change
     store.commit([], [], households=[updated], consent=[(household.id, entry)])
+    if not value:
+        store.delete_swaps(household.id)
     return updated
 
 

@@ -21,7 +21,7 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Gemini | `gemini-3.5-flash` on Vertex AI `asia-south1`, `thinking_level=minimal`; SA has `roles/aiplatform.user` |
 | Firebase web app | `EcoTrace Web` — `1:55962094566:web:eff857d7171aac9606e427` |
 
-Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins), `GOOGLE_CLOUD_PROJECT`, `DEMO_RATE_LIMIT_PER_MIN` (default 10), `GEMINI_MODEL`, `GEMINI_LOCATION`, `GEMINI_THINKING_LEVEL`, `GEMINI_TIMEOUT_S`, `GEMINI_TIPS_TIMEOUT_S` (default 10), `ANALYZE_RATE_LIMIT_PER_MIN` (default 10), `TIPS_RATE_LIMIT_PER_MIN` (default 10), `PHOTO_BUCKET` (all set by `deploy-backend.sh`).
+Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins), `GOOGLE_CLOUD_PROJECT`, `DEMO_RATE_LIMIT_PER_MIN` (default 10), `GEMINI_MODEL`, `GEMINI_LOCATION`, `GEMINI_THINKING_LEVEL`, `GEMINI_TIMEOUT_S`, `GEMINI_TIPS_TIMEOUT_S` (default 10), `ANALYZE_RATE_LIMIT_PER_MIN` (default 10), `TIPS_RATE_LIMIT_PER_MIN` (default 10, also used for swap ranking), `PARTNER_RATE_LIMIT_PER_MIN` (default 60), `PHOTO_BUCKET` (all set by `deploy-backend.sh`).
 Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled by `deploy-frontend.sh`; see `frontend/.env.example`).
 
 ## Auth & roles model
@@ -42,6 +42,10 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - **Operator flow** in `app/operator.py`: `analyze` writes a server-side DRAFT `wasteRecords/{code}`; `confirm` computes `edited`/`editCount` from that draft (the client never sends `aiResult`). Keep both `aiResult` and `finalItems`. Photos via `app/photos.py` (`GcsPhotoStore`, create-only); taxonomy only in `app/taxonomy.py`.
 - **Insights** (`app/insights.py`): stats, eco score and points are pure functions of the household's confirmed `wasteRecords`. Never increment stats: call `rebuild()` and write the result in the same batch as the change (operator confirm does). Ledger ids are `{bagCode}-{reason}` (idempotent). The eco score never comes from Gemini. Repair/backfill: `scripts/backfill_stats.py`.
 - **Tips** (`app/ai/tips.py`, `app/residents.py`): Gemini gets ONLY `insights.tips_payload()` (aggregates). Cache in `households/{id}/tips/{lang}` keyed by `statsHash`; fallback tips are never cached. Shared Gemini client/retry lives in `app/ai/gemini.py`.
+- **Swaps** (`app/recommendations.py`): stage 1 deterministic candidates (`find_candidates`, direct item-type matches before category matches); stage 2 Gemini picks ONLY from candidates and `validate_picks` drops anything else; deterministic fallback. Gemini gets only `ranking_payload()` (aggregates + candidates). Cache keyed by `statsHash` + `catalogVersion`; deleted on consent withdrawal.
+- **Partner API** (`app/partner_api.py`, `app/routes/partner.py`, `/partner/v1`): key auth (`etp.<partner>.<random>`, SHA-256 hash stored, plain key only in Secret Manager), per-key rate limit, consenting households only, **K_MIN = 5** for every reported group. Never return household ids or per-household rows. Segments are rules in `app/segments.py` (bump `SEGMENT_VERSION` if they change).
+- **Gemini endpoints:** classification (photos) is regional only; tips + swaps may retry on `global` after a regional 5xx (`generate_with_retry(..., fallback_client=)`).
+- **Never commit API keys** — also not in screenshots (Swagger shows the key in its curl example: mask it).
 - **Consent**: every `dataSharing` change (PUT consent or PATCH household) goes through `residents.consent_change()` and logs `consentHistory` in the same batch. Bump `CONSENT_TEXT_VERSION` when the explanation text changes.
 - **Synthetic data**: seeded demo history is `isSynthetic: true` (`app/demo_history.py`); exclude it from analytics/benchmarks.
 - Demo operator: `ensure_demo_operator_data()` queues one delivered demo pickup (2 bags) only when the warehouse queue is empty.
@@ -170,6 +174,8 @@ docker build -t ecotrace-backend . && docker run -p 8080:8080 ecotrace-backend
 firebase deploy --only firestore         # Firestore security rules + composite indexes
 backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair the 4 demo users + demo data incl. synthetic history (idempotent)
 backend/.venv/Scripts/python scripts/backfill_stats.py    # rebuild every household's stats + points ledger
+# Seed also creates demo partners (keys -> Secret Manager `partner-api-key-<id>`), 30 synthetic households,
+# and turns the demo resident's consent on. Read a demo key: gcloud secrets versions access latest --secret=partner-api-key-greencart-lk
 ```
 
 Gemini failure-path test without touching production (see rule 5): `EXTRA_DEPLOY_FLAGS="--tag failtest --no-traffic" GEMINI_TIMEOUT_S=0.001 ./scripts/deploy-backend.sh`, call `https://failtest---<service-url>` only, then `gcloud run services update-traffic ecotrace-api --region asia-south1 --remove-tags failtest` and delete the revision once it is no longer the newest.

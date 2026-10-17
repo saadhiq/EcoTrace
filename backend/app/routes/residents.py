@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import residents, services
+from app import recommendations, residents, services
 from app.ai.tips import GeminiTipGenerator, TipGenerator
+from app.recommendations import GeminiRanker, Ranker
 from app.auth import require_role
 from app.clock import Clock
 from app.deps import get_clock, get_store
@@ -27,6 +28,15 @@ def _tip_generator() -> GeminiTipGenerator:
 
 def get_tip_generator() -> TipGenerator:
     return _tip_generator()
+
+
+@lru_cache
+def _ranker() -> GeminiRanker:
+    return GeminiRanker()
+
+
+def get_ranker() -> Ranker:
+    return _ranker()
 
 
 def get_tips_limiter(request: Request) -> RateLimiter:
@@ -74,3 +84,30 @@ def put_consent(
     household = services.get_household(store, user.uid)
     updated = residents.set_consent(store, clock, household, body.dataSharing, by=user.uid)
     return residents.consent_view(store, updated)
+
+
+class ClickResponse(BaseModel):
+    url: str
+
+
+@router.get("/residents/me/swaps", response_model=recommendations.SwapsResponse)
+async def swaps(
+    user: CurrentUser = Depends(resident_only),
+    store: DataStore = Depends(get_store),
+    ranker: Ranker = Depends(get_ranker),
+    limiter: RateLimiter = Depends(get_tips_limiter),
+    clock: Clock = Depends(get_clock),
+) -> recommendations.SwapsResponse:
+    """Personal sustainable swaps (requires data-sharing consent; 403 consent_required otherwise)."""
+    return await run_in_threadpool(recommendations.get_swaps, store, ranker, limiter, clock, user.uid)
+
+
+@router.post("/residents/me/swaps/{sku}/click", response_model=ClickResponse)
+def swap_click(
+    sku: str,
+    user: CurrentUser = Depends(resident_only),
+    store: DataStore = Depends(get_store),
+    clock: Clock = Depends(get_clock),
+) -> ClickResponse:
+    """Count an anonymous click (partner + product + day) and return the product URL."""
+    return ClickResponse(url=recommendations.record_click(store, clock, user.uid, sku))

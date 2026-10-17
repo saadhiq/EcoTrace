@@ -11,7 +11,7 @@ import { insightsApi, type ConsentView } from "@/lib/insights";
 import styles from "./insights.module.css";
 
 /** Opt-in data sharing: off by default, explained plainly, every change logged. */
-export default function PrivacyCard({ user }: { user: User }) {
+export default function PrivacyCard({ user, onChange }: { user: User; onChange?: (dataSharing: boolean) => void }) {
   const [view, setView] = useState<ConsentView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +32,9 @@ export default function PrivacyCard({ user }: { user: User }) {
     setBusy(true);
     setError(null);
     try {
-      setView(await insightsApi.setConsent(user, !view.dataSharing));
+      const updated = await insightsApi.setConsent(user, !view.dataSharing);
+      setView(updated);
+      onChange?.(updated.dataSharing);
     } catch {
       setError("Couldn't save your choice. Please try again.");
     } finally {
@@ -43,7 +45,7 @@ export default function PrivacyCard({ user }: { user: User }) {
   const on = view?.dataSharing ?? false;
 
   return (
-    <Card data-testid="privacy">
+    <Card data-testid="privacy" id="privacy">
       <h2 className={styles.sectionTitle}>Privacy &amp; data sharing</h2>
       <div className={styles.switchRow} style={{ marginTop: 12 }}>
         <div>
@@ -78,16 +80,19 @@ export default function PrivacyCard({ user }: { user: User }) {
         <dt>What would be shared</dt>
         <dd>
           Only category totals from your processed bags (for example “12 plastic items this month”), combined with other
-          households in your zone so no single home can be picked out.
+          households: partners only see groups of at least 5 households, so no single home can be picked out.
         </dd>
         <dt>Never shared</dt>
         <dd>Photos, your name, address, phone number, bag codes or the brands you buy.</dd>
         <dt>Why</dt>
-        <dd>To help recyclers and partners plan collection and recycling capacity.</dd>
+        <dd>
+          To help recyclers and partners plan collection and recycling capacity — and to show you personal
+          sustainable-swap suggestions matched to what you throw away.
+        </dd>
         <dt>Your control</dt>
         <dd>
-          Sharing is off unless you turn it on. You can withdraw at any time and sharing stops from then. Nothing is shared
-          until the partner programme launches; your choice is recorded now.
+          Sharing is off unless you turn it on. You can withdraw at any time: you are removed from partner statistics and
+          your personal swap suggestions are deleted straight away.
         </dd>
       </dl>
       {view && view.history.length > 0 && (

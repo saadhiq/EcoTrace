@@ -24,14 +24,14 @@ class AiError(Exception):
         self.kind = kind
 
 
-def make_client(timeout_s: float | None = None) -> Any:  # noqa: ANN401 - google.genai.Client
+def make_client(timeout_s: float | None = None, location: str | None = None) -> Any:  # noqa: ANN401
     from google import genai
     from google.genai import types
 
     return genai.Client(
         vertexai=True,
         project=config.project_id(),
-        location=config.gemini_location(),
+        location=location or config.gemini_location(),
         http_options=types.HttpOptions(timeout=int((timeout_s or config.gemini_timeout_s()) * 1000)),
     )
 
@@ -52,6 +52,12 @@ def is_retryable(exc: Exception) -> bool:
     return False
 
 
+def is_server_error(exc: Exception) -> bool:
+    from google.genai import errors
+
+    return isinstance(exc, errors.APIError) and (exc.code or 0) >= 500
+
+
 def generate_with_retry(
     client: Any,  # noqa: ANN401
     model: str,
@@ -59,14 +65,23 @@ def generate_with_retry(
     generation_config: Any,  # noqa: ANN401
     sleep: Callable[[float], None],
     backoff_s: float = RETRY_BACKOFF_S,
+    fallback_client: Any = None,  # noqa: ANN401
 ) -> Any:  # noqa: ANN401
-    """generate_content with ONE retry (timeouts / 429 / 5xx); else AiError(unavailable)."""
+    """generate_content with ONE retry (timeouts / 429 / 5xx); else AiError(unavailable).
+
+    If `fallback_client` is given (tips only - aggregates, never photos) and the
+    first attempt hit a 5xx, the retry goes to that client (global endpoint).
+    """
+    current = client
     for attempt in (1, 2):
         try:
-            return client.models.generate_content(model=model, contents=contents, config=generation_config)
+            return current.models.generate_content(model=model, contents=contents, config=generation_config)
         except Exception as exc:  # noqa: BLE001 - classified below
             logger.warning("gemini attempt %d failed: %s", attempt, type(exc).__name__)
             if attempt == 2 or not is_retryable(exc):
                 raise AiError("unavailable", f"Gemini request failed: {type(exc).__name__}") from exc
+            if fallback_client is not None and is_server_error(exc):
+                logger.warning("gemini regional 5xx: retrying on the global endpoint")
+                current = fallback_client
             sleep(backoff_s)
     raise AssertionError("unreachable")

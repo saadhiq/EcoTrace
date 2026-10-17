@@ -90,6 +90,7 @@ class Household(BaseModel):
     lng: float | None = None
     consent: Consent = Field(default_factory=Consent)
     createdAt: datetime
+    isSynthetic: bool = False
 
 
 class Bag(BaseModel):
@@ -244,10 +245,10 @@ class ScoreParts(BaseModel):
 
 
 class PickupPoint(BaseModel):
-    """One point of the trend chart (one processed pickup)."""
+    """One point of the trend chart (one processed pickup), dated by processedAt."""
 
     pickupId: str
-    date: str | None
+    date: str | None  # Colombo date the pickup's last bag was processed
     bags: int
     quantity: int
     recyclableShare: float | None
@@ -272,6 +273,14 @@ class HouseholdStats(BaseModel):
     scoreParts: ScoreParts | None = None
     points: int = 0
     byPickup: list[PickupPoint] = Field(default_factory=list)
+    # Normalised productType -> quantity (top 15), for swaps + segments.
+    productTypes: dict[str, int] = Field(default_factory=dict)
+    # YYYY-MM (processedAt, Colombo) -> {category: quantity}, for partner insights.
+    monthly: dict[str, dict[str, int]] = Field(default_factory=dict)
+    segment: str | None = None
+    segmentVersion: str | None = None
+    firstProcessed: str | None = None
+    lastProcessed: str | None = None
     statsHash: str = ""
     lastUpdated: datetime | None = None
 
@@ -310,3 +319,55 @@ class ConsentEntry(BaseModel):
     at: datetime
     by: str
     textVersion: str
+
+
+# --- Partners & swaps ---
+
+
+class Partner(BaseModel):
+    """partners/{id}. Only a SHA-256 hash of the API key is stored."""
+
+    id: str
+    name: str
+    apiKeyHash: str
+    keyPrefix: str
+    active: bool = True
+    createdAt: datetime
+    isSynthetic: bool = False
+
+
+class CatalogItem(BaseModel):
+    """partners/{id}/catalog/{sku}."""
+
+    sku: str
+    name: str
+    category: Category
+    tags: list[str] = Field(default_factory=list)
+    replaces: list[str] = Field(default_factory=list)  # waste productTypes it substitutes
+    ecoBenefit: str
+    price: float
+    url: str
+
+
+class SwapPick(BaseModel):
+    sku: str
+    partnerId: str
+    partnerName: str
+    name: str
+    category: Category
+    ecoBenefit: str
+    price: float
+    url: str
+    reason: str
+
+
+class SwapsCache(BaseModel):
+    """households/{id}/swaps/current (API only; deleted when consent is withdrawn)."""
+
+    picks: list[SwapPick]
+    statsHash: str
+    catalogVersion: str
+    model: str | None
+    source: str  # gemini | fallback
+    generatedAt: datetime
+    latencyMs: int | None = None

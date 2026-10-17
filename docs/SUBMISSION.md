@@ -22,15 +22,28 @@ Google Cloud **AI Builder Cup**. Tick items as they are completed.
 | 5 | Process flow | ☐ | Schedule → collect (QR) → photograph → Gemini classify → store → recommend |
 | 6 | Architecture diagram | ☐ | Firebase Hosting, Auth, Firestore, Storage, Cloud Run, Vertex AI Gemini, Secret Manager |
 | 7 | How we use Google Cloud | ☐ | From the section below |
-| 8 | Screenshots | ☐ | `docs/screenshots/` — have: `step1-login`, `step1-{resident,collector,operator,admin}`, `step1-mobile-resident`, `step2-{onboarding,dashboard,schedule,bags-qr,mobile}`, `step3-{collector-today,scan,scan-error,handover,resident-tracker-delivered,mobile}`, `step4-{queue,analyzing,results,edited,resident-processed,mobile}`, `step5-{insights,breakdown,pickup-detail,tips-en,tips-si,tips-ta,consent,mobile}` |
+| 8 | Screenshots | ☐ | `docs/screenshots/` — have: `step1-login`, `step1-{resident,collector,operator,admin}`, `step1-mobile-resident`, `step2-{onboarding,dashboard,schedule,bags-qr,mobile}`, `step3-{collector-today,scan,scan-error,handover,resident-tracker-delivered,mobile}`, `step4-{queue,analyzing,results,edited,resident-processed,mobile}`, `step5-{insights,breakdown,pickup-detail,tips-en,tips-si,tips-ta,consent,mobile}`, `step6a-{swaps,swaps-consent-off,api-docs,segments-response}` |
 | 9 | Gemini classification deep-dive | ☐ | Prompt rules, response schema, human review (`step4-results` vs `step4-edited`), accuracy from `aiResult` vs `finalItems` |
 | 10 | Performance / benchmark report | ☐ | Latency, cost, classification accuracy |
 | 11 | Privacy (opt-in, anonymization) | ☐ | Consent off by default, plain-language explanation, logged history (`step5-consent`); tips use aggregates only; photos auto-deleted after 30 days |
-| 12 | Impact & roadmap | ☐ | Partner API |
+| 12 | Impact & roadmap | ☐ | Partner API (live), BigQuery ML clustering, differential privacy for counts |
 
 ## For judges
 
 Open https://ecotrace-9e406.web.app → **Try a demo account** → pick any role (no password). Accounts are shared; the demo resident always has a household, bags and an upcoming pickup ready, and the **demo collector always has a pickup to collect today** (both repaired on every demo sign-in, never wiped). On the collector's pickup screen, **Simulate scan** stands in for a printed QR label. The **demo operator** always has a bag in the warehouse queue and can use a **sample photo** to try Gemini. Or sign up to go through onboarding yourself.
+
+## Privacy design (for the deck)
+
+- **Consent first:** data sharing is **off by default**; a plain-language explanation says exactly what would and would
+  never be shared; every change is logged (`consentHistory`, with the explanation version). Withdrawing removes the
+  household from partner aggregates and deletes its personal swaps immediately.
+- **Personal swaps only with consent** (403 otherwise).
+- **K-anonymity for partners:** partners never get household-level data — only segments and zone-month cells with
+  **at least K = 5 consenting households**; smaller groups are suppressed.
+- **Minimal AI inputs:** Gemini sees photos only for classification (regional, never transcribing personal info);
+  tips and swaps use aggregates only. Photos auto-delete after 30 days.
+- **Known limitation:** K-suppression doesn't stop differencing attacks across repeated queries over time; production
+  would add noise (differential privacy) or time-windowed releases.
 
 ## Demo video checklist (3–4 min)
 
@@ -39,6 +52,7 @@ Open https://ecotrace-9e406.web.app → **Try a demo account** → pick any role
 - [ ] Collector accepts, scans QR (phone camera), completes, hands over at the warehouse; resident tracker moves live
 - [ ] Operator photographs bag (or sample photo) → "Analyzing with Gemini…" → reviews/edits items → confirm → resident tracker reaches Processed
 - [ ] Resident insights: eco score, points, category breakdown, trend; Gemini tips in English → සිංහල → தமிழ்; consent toggle
+- [ ] Sustainable swaps (Gemini-ranked, grounded reasons) + partner API in the docs page (Authorize → Try it out)
 - [ ] Architecture recap
 - [ ] Recorded, edited, uploaded
 
@@ -80,6 +94,8 @@ _Fill in as each piece is built._
 - **Collector flow (step 3):** `GET /collector/pickups?date=` (available in my zones + my route, no bag codes), `GET /collector/pickups/{id}`, `POST …/{id}/accept`, `POST …/{id}/scan`, `POST …/{id}/simulate-scan` (demo accounts only), `POST …/{id}/complete` (full, or partial with a reason), `POST …/{id}/missed`, `GET /collector/handover`, `POST /collector/handover/scan` (last bag in → pickup `delivered`).
 - Every status change goes through one state machine (`app/transitions.py`); invalid transitions are rejected with 409.
 - **Warehouse operator (step 4):** `GET /operator/queue`, `GET /operator/bags/{code}`, `POST /operator/bags/{code}/analyze` (multipart, 1–3 photos → Gemini; saves a draft, not processed), `POST /operator/bags/{code}/confirm` (final items → bag `processed`; last bag → pickup `processed`), `GET /taxonomy`.
+- **Partner API v1 (step 6a)** on the same Cloud Run service, documented in the interactive **OpenAPI page** (`/docs`, "Partner API v1" first, Authorize with `X-API-Key`, examples): `GET /partner/v1/segments`, `GET /partner/v1/segments/{name}/recommendations`, `GET /partner/v1/insights?zone=`. Hashed API keys (plain keys only in **Secret Manager**), 60 requests/min per key (429 + `Retry-After`), usage logged.
+- **Swaps (step 6a):** `GET /residents/me/swaps` (403 without consent), `POST /residents/me/swaps/{sku}/click` (anonymous counters).
 - **Resident insights (step 5):** `POST /residents/me/tips?lang=`, `GET /residents/me/pickups/{id}/details` (final items per bag, no photos/AI internals), `GET|PUT /households/me/consent`.
 - 287 backend tests (pytest, in-memory fakes + mocked Gemini): score formula edge cases, ledger awards, stats in the confirm batch, tips caching/fallback, consent history, every pickup and bag transition, all validation and scan errors, structured-output parsing (valid, partial, invalid), timeout → retry → manual fallback, edit counting, pickup processed on its last bag.
 - Scales to zero (`min-instances 0`); CORS restricted to localhost + Firebase Hosting domains via the `ALLOWED_ORIGINS` env var.
@@ -118,6 +134,8 @@ _Fill in as each piece is built._
   data. Tips are **cached per household + language** and regenerated only when the stats change (repeat visits don't
   call Gemini: ~0.3 s from cache vs ~2 s generation). If Gemini fails, the resident gets their previous tips or static
   tips (shorter 10 s timeout for tips). Sinhala/Tamil render with self-hosted Noto fonts.
+- **Grounded swap ranking (step 6a):** a deterministic stage matches the household's top item types to partner catalog `replaces[]`; Gemini then picks **at most 4 products from that candidate list only** and writes a one-line reason grounded in the household's numbers (e.g. *"You disposed of 14 newspapers between 2026-08-23 and 2026-10-17"*). **Every returned SKU is validated** against the candidates — hallucinated or duplicate SKUs are dropped; if nothing valid remains (or Gemini fails) a deterministic ranking with template reasons is used. Cached until the stats or catalog change.
+- **Endpoint policy:** classification (photos) is regional-only; tips and swap ranking (aggregates only) retry once on Gemini's **global** endpoint after a regional 5xx.
 - **The eco score is NOT from Gemini** — it's a transparent formula over the confirmed data (see Firestore below).
 
 ### Cloud Storage
@@ -129,8 +147,7 @@ _Fill in as each piece is built._
 - The service account can only create and read objects in this one bucket.
 
 ### Secret Manager
-- Not needed yet: there are no secrets — Vertex AI, Firestore, Storage and Firebase Auth all use the service
-  account's identity (ADC), and the Firebase web config is public by design.
+- Holds the demo **partner API keys** (`partner-api-key-greencart-lk`, `partner-api-key-ecohome-store`, replicated in `asia-south1`); Firestore stores only SHA-256 hashes. Everything else uses the service account's identity (ADC) — no other secrets exist.
 
 ## Step log
 
@@ -143,3 +160,4 @@ _Fill in as each piece is built._
 | 3 | Collector flow: state machine, accept/scan/complete/missed, warehouse handover → delivered, camera QR scanner (self-hosted decoder) + manual entry + demo "Simulate scan", code-free `routes` mirror for a live "My route", demo collector always has a pickup today | ✅ |
 | 4 | Warehouse operator + Gemini: `gemini-3.5-flash` on Vertex AI (asia-south1) with structured output and safety prompt, private photo bucket (30-day lifecycle), editable human review, `wasteRecords` keeping AI + final items, bag/pickup → processed, manual fallback, demo sample photos, prefetch-404 fix | ✅ |
 | 5 | Resident insights: live eco score (transparent formula), points ledger, category breakdown + trend (validated palette), pickup item history, Gemini tips in English/Sinhala/Tamil cached by stats, opt-in consent with logged history, 8 synthetic demo pickups (`isSynthetic`), deploy traffic safety check | ✅ |
+| 6a | Swaps + partner API: rule-based segments in stats, deterministic candidates + Gemini ranking with SKU validation and fallback, consent-gated swaps card with anonymous impression/click counters, Partner API v1 (hashed keys in Secret Manager, per-key rate limit, K ≥ 5 suppression, OpenAPI docs), 2 fictional partners × 20 products, 30 synthetic households; trend by processed date; tips global fallback | ✅ |

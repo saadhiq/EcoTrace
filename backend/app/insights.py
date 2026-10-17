@@ -28,6 +28,8 @@ from app.models import (
     WasteRecord,
     WasteRecordStatus,
 )
+from app.clock import COLOMBO
+from app.segments import SEGMENT_VERSION, assign_segment
 from app.taxonomy import CATEGORIES, SEGREGATION_QUALITIES
 
 if TYPE_CHECKING:
@@ -46,6 +48,19 @@ SCORE_EXPLANATION = (
     "50% sorting quality + 30% recyclable share + 20% safe hazard disposal, across all your processed bags."
 )
 TREND_POINTS = 12
+TOP_PRODUCT_TYPES = 15
+
+
+def normalize_type(text: str | None) -> str:
+    """'Beverage_Bottles' -> 'beverage bottle' (lowercase, no underscores, naive singular)."""
+    words = (text or "").lower().replace("_", " ").replace("-", " ").split()
+    return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w for w in words)
+
+
+def processed_day(record: WasteRecord) -> str | None:
+    if record.processedAt is None:
+        return record.pickupDate
+    return record.processedAt.astimezone(COLOMBO).date().isoformat()
 
 
 def _safe_hazards(record: WasteRecord) -> bool:
@@ -116,13 +131,26 @@ def compute_stats(records: list[WasteRecord], now: datetime) -> HouseholdStats:
         rec = sum(i.quantity for r in group for i in r.finalItems if i.recyclable)
         trend.append(PickupPoint(
             pickupId=pickup_id,
-            date=max((r.pickupDate or "" for r in group), default="") or None,
+            date=max((processed_day(r) or "" for r in group), default="") or None,
             bags=len(group),
             quantity=quantity,
             recyclableShare=round(rec / quantity, 3) if quantity else None,
             ecoScore=eco_score(group),
         ))
     trend.sort(key=lambda p: (p.date or "", p.pickupId))
+
+    product_types: dict[str, int] = defaultdict(int)
+    monthly: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for record in confirmed:
+        month = (processed_day(record) or "")[:7]
+        for item in record.finalItems:
+            key = normalize_type(item.productType) or normalize_type(item.name)
+            if key:
+                product_types[key] += item.quantity
+            if month:
+                monthly[month][item.category] += item.quantity
+    top_types = dict(sorted(product_types.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_PRODUCT_TYPES])
+    days = sorted(d for d in (processed_day(r) for r in confirmed) if d)
 
     stats = HouseholdStats(
         categories=categories,
@@ -140,6 +168,18 @@ def compute_stats(records: list[WasteRecord], now: datetime) -> HouseholdStats:
         scoreParts=score_parts(confirmed),
         points=sum(e.points for r in confirmed for e in awards_for(r)),
         byPickup=trend[-TREND_POINTS:],
+        productTypes=top_types,
+        monthly={m: dict(c) for m, c in sorted(monthly.items())},
+        segment=assign_segment(
+            {c: s.quantity for c, s in categories.items()},
+            product_types,
+            hazard_bags=sum(1 for r in confirmed if r.hazardFlags),
+            good_bags=segregation["good"],
+            bags=len(confirmed),
+        ),
+        segmentVersion=SEGMENT_VERSION,
+        firstProcessed=days[0] if days else None,
+        lastProcessed=days[-1] if days else None,
         lastUpdated=now,
     )
     return stats.model_copy(update={"statsHash": stats_hash(stats)})

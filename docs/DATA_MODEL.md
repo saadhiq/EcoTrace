@@ -130,7 +130,11 @@ can never drift. `scripts/backfill_stats.py` uses the same function (`app/insigh
 | `hazards`, `hazardBags`, `safeHazardBags` | flag counts; bags with hazards; of those, packed separately (segregation "good") |
 | `ecoScore`, `scoreParts` | see formula below; `null` until the first processed bag |
 | `points` | sum of all ledger awards |
-| `byPickup` | trend series: `{pickupId, date, bags, quantity, recyclableShare, ecoScore}` per pickup, last 12 |
+| `byPickup` | trend series: `{pickupId, date, bags, quantity, recyclableShare, ecoScore}` per pickup, last 12; `date` = Colombo date the pickup's last bag was **processed** (`processedAt`) |
+| `productTypes` | normalised item type → quantity (top 15; lowercase, no underscores, naive singular) — used by swaps and segments |
+| `monthly` | `{YYYY-MM: {category: quantity}}` by processed month — used by partner insights |
+| `segment`, `segmentVersion` | rule-based segment (see below), `v1` |
+| `firstProcessed`, `lastProcessed` | date range covered (used in grounded reasons) |
 | `statsHash` | fingerprint of the aggregated numbers — keys the tips cache |
 | `lastUpdated` | |
 
@@ -149,13 +153,55 @@ UI one-liner: *"50% sorting quality + 30% recyclable share + 20% safe hazard dis
 twice). Awards per processed bag: **+10** `bag_processed`; **+5** `good_segregation`; **+5** `hazards_separated` (the
 bag had hazard flags **and** was well sorted, i.e. hazardous items were packed separately). Written in the confirm batch.
 
+### Segments (rules, `app/segments.py`)
+Evaluated in order, first match wins; shares are by item quantity over all processed bags.
+
+| Segment | Rule |
+|---|---|
+| `e-waste-disposer` | e-waste + hazardous ≥ 15 %, **or** ≥ 2 bags with hazard flags |
+| `beverage-plastic-heavy` | plastic + metal ≥ 45 % **and** drink containers (item types containing bottle / can / cup / carton) ≥ 25 % |
+| `organic-heavy-family` | organic ≥ 35 % |
+| `paper-and-packaging` | paper & cardboard ≥ 30 % |
+| `well-segregated` | ≥ 70 % of bags rated "good" |
+| `mixed-household` | otherwise |
+
+**Why rules, not ML:** we have tens of households — clusters would be unstable and change meaning between runs;
+partners need segment names that mean the same thing every week; rules are explainable to residents, partners and
+judges and can be checked by hand. **Future work:** export stats to BigQuery and use **BigQuery ML k-means** once there
+are thousands of households, keeping these rules as human-readable labels.
+
+### `households/{id}/swaps/current` — personal swaps cache (API only)
+`{picks[], statsHash, catalogVersion, model, source: gemini|fallback, generatedAt, latencyMs}`. Reused while both
+hashes match; **deleted when the resident withdraws consent**. `catalogVersion` covers everything a resident sees
+(names, prices, URLs, benefits).
+
+### `partners/{id}` + `partners/{id}/catalog/{sku}` (API only)
+Partner: `{name, apiKeyHash, keyPrefix, active, createdAt, isSynthetic}` — the key (`etp.<partnerId>.<random>`) is
+shown once / kept in **Secret Manager** (`partner-api-key-<partnerId>`); Firestore stores only its **SHA-256 hash**
+(plain hash is fine: keys are 256-bit random, not passwords). Catalog item: `{sku, name, category, tags[], replaces[],
+ecoBenefit, price, url}` — `replaces[]` lists the waste item types it substitutes. Demo partners are fictional;
+their product links open EcoTrace's own `/demo-store` page.
+
+### `partnerMetrics/{partnerId}/daily/{YYYY-MM-DD}` (API only)
+`{impressions: {sku: n}, clicks: {sku: n}}` via atomic `Increment` — **no household or user identifiers**.
+Partner API usage is logged (partner + endpoint) in Cloud Logging.
+
+### Synthetic households
+`synthetic-hh-01…30` (no login accounts): households + 2 synthetic `wasteRecords` each, stats built with the same
+`rebuild()`; ~77 % consent; all `isSynthetic: true`. Profiles/zones are chosen so some segments and zones clear K = 5
+and some are suppressed. The seed also turns the demo resident's consent **on** (logged as `by: "seed"`).
+
 ### `households/{id}/tips/{lang}` — Gemini tips cache (API only)
 `{lang, tips[{title, body, category}], statsHash, model, generatedAt, latencyMs}`, `lang ∈ en | si | ta`. Served as-is
 while `statsHash` matches the current stats; regenerated once after the stats change. Fallback tips are never cached.
 
+**Gemini endpoints:** bag classification (photos) runs **only in `asia-south1`**. Tips and swap ranking send only
+aggregated numbers, so if the regional endpoint returns a 5xx their single retry goes to the **`global`** endpoint
+(timeouts / 429 still retry regionally).
+
 ### `households/{id}/consentHistory/{auto}` (API only)
 `{value, at, by, textVersion}` — one entry per **change** of `consent.dataSharing` (same-value updates are not logged),
-written in the same batch as the household update. `textVersion` records which explanation the resident saw (`v1`).
+written in the same batch as the household update. `textVersion` records which explanation the resident saw (`v1` step 5; `v2` adds partner segments with K ≥ 5 and personal swaps). Withdrawing consent also deletes the swaps cache and removes the household from partner aggregates immediately.
 
 ### Synthetic demo data
 The demo resident's 8 history pickups (`demo-hist-01…08`), their bags and waste records carry **`isSynthetic: true`**
