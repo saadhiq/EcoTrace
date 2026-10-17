@@ -227,6 +227,8 @@ class WasteRecord(BaseModel):
     # Denormalised for insights (trend by pickup date).
     pickupDate: str | None = None
     isSynthetic: bool = False
+    # Development/test run: kept for audit, excluded from insights and AI-quality metrics.
+    isTest: bool = False
     # Operator edits vs the AI result (set on confirm; None on older records).
     itemsAdded: int | None = None
     itemsRemoved: int | None = None

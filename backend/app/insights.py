@@ -229,7 +229,7 @@ def rebuild(
     by_code = {r.bagCode: r for r in store.list_confirmed_records(household_id)}
     for record in pending or []:
         by_code[record.bagCode] = record
-    records = list(by_code.values())
+    records = [r for r in by_code.values() if not r.isTest]
     missing = [r.pickupId for r in records if r.pickupDate is None and r.pickupId]
     if missing:
         dates = {pid: p.date for pid, p in store.get_pickups(missing).items()}

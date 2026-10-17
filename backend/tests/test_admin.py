@@ -194,8 +194,21 @@ def test_ai_quality_calculations() -> None:
 def test_ai_quality_endpoint_uses_real_records_only(client: TestClient, world: dict, store: FakeDataStore) -> None:
     store.records["r1"] = record("r1", edited=True, edits=1)
     store.records["syn"] = record("syn", source="synthetic", ai=False)
+    store.records["dev"] = record("dev", latency=99_000).model_copy(update={"isTest": True})
+    store.records["dev-draft"] = record("dev-draft", ai=False, ai_error="timeout").model_copy(
+        update={"status": "draft", "isTest": True})
     body = client.get("/admin/ai-quality", headers=world["demo"]).json()
     assert body["recordsConsidered"] == 1 and body["correctionRate"] == 1.0
+    assert body["failures"] == 0 and body["p95LatencyMs"] == 1000  # test runs excluded
+
+
+def test_test_records_are_excluded_from_insights(store: FakeDataStore, clock: FixedClock) -> None:
+    from app.insights import rebuild
+
+    store.records["a"] = record("a").model_copy(update={"householdId": "hh"})
+    store.records["b"] = record("b").model_copy(update={"householdId": "hh", "isTest": True})
+    stats, ledger = rebuild(store, clock.now(), "hh")
+    assert stats.bagsProcessed == 1 and all(e.bagCode == "a" for e in ledger)
 
 
 # --- overview ---

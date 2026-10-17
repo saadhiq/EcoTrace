@@ -203,7 +203,8 @@ def p95(values: list[int]) -> int | None:
 
 
 def ai_quality(records: list[WasteRecord], drafts: list[WasteRecord]) -> AiQuality:
-    real = [r for r in records if not r.isSynthetic]
+    real = [r for r in records if not r.isSynthetic and not r.isTest]
+    drafts = [d for d in drafts if not d.isTest]
     analyzed = [r for r in real if r.aiResult is not None]
     latencies = [r.latencyMs for r in analyzed if r.latencyMs is not None]
     ai_items = [i for r in analyzed for i in r.aiResult.items]  # type: ignore[union-attr]
