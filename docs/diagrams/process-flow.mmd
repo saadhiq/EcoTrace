@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph COLLECT["Collect"]
+        direction LR
+        S1["1 · Resident schedules<br/>a pickup (bag QR codes)"] --> S2["2 · Collector scans<br/>each bag → collected"] --> S3["3 · Warehouse handover<br/>scan → delivered"]
+    end
+    subgraph CLASSIFY["Classify"]
+        direction LR
+        S4["4 · Operator<br/>photographs the bag"] --> S5["5 · Gemini: structured<br/>items, categories, hazards"] --> S6["6 · Human review<br/>edit + confirm → processed"] --> S7["7 · Firestore: record +<br/>household stats (one batch)"]
+    end
+    subgraph VALUE["Use"]
+        direction LR
+        S8["8 · Resident insights<br/>eco score · points · Gemini tips"] --> S9{"Consent to<br/>data sharing?"}
+        S9 -->|"yes"| S10["Sustainable swaps<br/>Gemini picks from<br/>partner catalog"]
+        S9 -->|"yes"| S11["Partner API: anonymised<br/>segments (K ≥ 5)"]
+        S12["Admin dashboard<br/>overview · AI quality · timelines"]
+    end
+    COLLECT --> CLASSIFY --> VALUE
+
+    classDef step fill:#e3f2ea,stroke:#1f7a4d,color:#17201b
+    classDef ai fill:#efe8fb,stroke:#6d3fc0,color:#17201b
+    classDef out fill:#e4edfb,stroke:#1d5fbf,color:#17201b
+    class S1,S2,S3,S4,S6,S7 step
+    class S5,S10 ai
+    class S8,S9,S11,S12 out

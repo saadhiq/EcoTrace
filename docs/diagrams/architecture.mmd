@@ -1,0 +1,38 @@
+flowchart LR
+    subgraph Users["People"]
+        R["Resident"]
+        C["Collector<br/>(phone camera)"]
+        O["Warehouse operator"]
+        A["Admin"]
+    end
+    P["Partner systems<br/>(server-to-server)"]
+
+    subgraph GCP["Google Cloud"]
+        subgraph FB["Firebase"]
+            H["Firebase Hosting<br/>Next.js static app"]
+            AU["Firebase Auth<br/>role = custom claim"]
+        end
+        CR["Cloud Run<br/>FastAPI API<br/>state machine · admin API<br/>Partner API v1"]
+        FS[("Firestore<br/>households · bags · pickups<br/>wasteRecords · stats")]
+        GS[("Cloud Storage<br/>bag photos<br/>private, 30-day delete")]
+        GM["Gemini on Vertex AI<br/>gemini-3.5-flash<br/>classify · tips · swaps"]
+        SM["Secret Manager<br/>demo partner keys"]
+    end
+
+    Users -->|"HTTPS"| H
+    Users -->|"sign in"| AU
+    Users -->|"live reads (own data only)"| FS
+    Users -->|"ID token"| CR
+    P -->|"X-API-Key"| CR
+    CR -->|"verify token"| AU
+    CR -->|"batch writes"| FS
+    CR -->|"photos"| GS
+    CR -->|"photos / aggregates"| GM
+    CR -->|"read key"| SM
+
+    classDef gcp fill:#e3f2ea,stroke:#1f7a4d,color:#17201b
+    classDef ai fill:#efe8fb,stroke:#6d3fc0,color:#17201b
+    classDef ext fill:#ffffff,stroke:#5b6b62,color:#17201b
+    class H,AU,CR,FS,GS,SM gcp
+    class GM ai
+    class R,C,O,A,P ext
