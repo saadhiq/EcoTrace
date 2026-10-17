@@ -11,7 +11,7 @@ Residents schedule pickups, collectors scan each bag's QR code, warehouse operat
 
 ## Try it in one click (no password)
 
-Open the web app → **Try a demo account** → pick a role:
+Open the web app: the **landing page** explains EcoTrace and has a **Try it in one click** card per role (the same one-click demo buttons are also on `/login`). Pick a role:
 
 | Button | What you'll see |
 |---|---|
@@ -21,6 +21,10 @@ Open the web app → **Try a demo account** → pick a role:
 | **Admin** | Overview, AI-quality panel, pickups with timelines, people, partners and a *Try the partner API* panel (read-only for accounts and partners) |
 
 Demo accounts are shared and repaired on every sign-in (the collector always gets a pickup, the operator always gets a bag). You can also sign up to go through onboarding yourself. The first request after a quiet period can take a few seconds while Cloud Run starts (it scales to zero).
+
+| Landing page (desktop) | Landing page (phone) |
+|---|---|
+| ![Landing page](docs/screenshots/landing-desktop.png) | <img src="docs/screenshots/landing-mobile.png" alt="Landing page on a phone" width="220"> |
 
 ## Architecture
 

@@ -6,6 +6,8 @@ Guidance for Claude (and humans) working in this repo.
 > `deploy-frontend.sh`, `firebase deploy`, traffic changes, IAM or service-config changes, and no writes to
 > production data (seed, backfill, cleanup scripts) — **unless the user explicitly asks for that specific action**.
 > Local code changes, tests and docs are fine. Keep the free tier: Cloud Run stays at `min-instances 0`.
+> Exceptions so far (each explicitly requested): 2026-10-17 one Hosting-only deploy of the landing page
+> (`deploy-frontend.sh` = `firebase deploy --only hosting`), with its live smoke test + `isTest` cleanup. The freeze is back in force.
 
 ## Project
 
@@ -75,6 +77,7 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - Insights read live via `useHouseholdStats` / `useRecentPoints` (onSnapshot). Sinhala/Tamil text must carry `lang="si"|"ta"` (Noto fonts via next/font).
 - Operator pages wrap content in `OperatorPage` (guard + taxonomy + zone names). Photos are resized with `lib/images.ts` before upload; uploads use `apiFetch(..., { form })`. Category colors are `--cat-*` tokens (`CategoryChip`). Demo sample photos live in `public/samples/` (copies of `docs/sample-images/`, see its CREDITS.md).
 - **Static export + Hosting:** `npm run build` runs `scripts/flatten-rsc.mjs` (postbuild), which copies Next.js 16's nested route payloads (`__next.a/b.txt`) to the dotted names the client requests (`__next.a.b.txt`). Without it every client navigation 404s and falls back to a full page load.
+- **Landing page** (`/`, `components/landing/Landing.tsx`, server `app/page.tsx` holds the metadata): public, no redirect; signed-in users get "Go to my dashboard". One-click demo sign-in lives ONLY in `components/auth/DemoSignIn.tsx` (used by `/` and `/login`); don't duplicate it. No invented stats or testimonials on it.
 - Map API error `detail` codes to friendly text (`residentErrorMessage`, `adminErrorMessage`; `demo_disabled` → "Disabled in the public demo.").
 - **API keys in the admin UI:** masked by default (`maskKey`); *Copy* never renders the key. Screenshots must never show a revealed key.
 

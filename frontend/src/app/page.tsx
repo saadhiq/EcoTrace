@@ -1,21 +1,27 @@
-"use client";
+import type { Metadata } from "next";
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import Landing from "@/components/landing/Landing";
 
-import { useAuth } from "@/components/auth/AuthProvider";
-import FullPageSpinner from "@/components/ui/FullPageSpinner";
-import { dashboardPath } from "@/lib/roles";
+const TITLE = "EcoTrace: know what every household throws away";
+const DESCRIPTION =
+  "QR-coded bags, phone scanning and Gemini turn household waste into data that helps people recycle more. Try the live demo in one click.";
 
-/** Sends the visitor to their dashboard, or to /login. */
+export const metadata: Metadata = {
+  metadataBase: new URL("https://ecotrace-9e406.web.app"),
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "EcoTrace",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [{ url: "/landing/og-image.jpg", width: 1200, height: 630, alt: "Gemini listing the items in a waste bag" }],
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/landing/og-image.jpg"] },
+};
+
+/** Public landing page (static). */
 export default function Home() {
-  const { state } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (state.status === "ready") router.replace(dashboardPath(state.profile.role));
-    else if (state.status === "signedOut" || state.status === "error") router.replace("/login");
-  }, [state, router]);
-
-  return <FullPageSpinner />;
+  return <Landing />;
 }
