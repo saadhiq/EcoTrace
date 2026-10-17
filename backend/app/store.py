@@ -10,12 +10,13 @@ from google.api_core.exceptions import AlreadyExists, Conflict
 from google.cloud.firestore import FieldFilter
 
 from app.firebase import firestore_client
-from app.models import Bag, Household, Pickup, PickupStatus, RouteStop, to_doc
+from app.models import Bag, BagStatus, Household, Pickup, PickupStatus, RouteStop, WasteRecord, to_doc
 
 HOUSEHOLDS = "households"
 BAGS = "bags"
 PICKUPS = "pickups"
 ROUTES = "routes"
+WASTE_RECORDS = "wasteRecords"
 
 
 class DataStore(Protocol):
@@ -37,6 +38,14 @@ class DataStore(Protocol):
 
     def list_bags(self, household_id: str) -> list[Bag]: ...
 
+    def list_bags_by_status(self, status: BagStatus) -> list[Bag]: ...
+
+    def get_waste_records(self, codes: list[str]) -> dict[str, WasteRecord]: ...
+
+    def save_waste_record(self, record: WasteRecord) -> None:
+        """Write a draft record (analysis before confirmation)."""
+        ...
+
     def get_pickup(self, pickup_id: str) -> Pickup | None: ...
 
     def list_pickups(self, household_id: str) -> list[Pickup]: ...
@@ -52,9 +61,13 @@ class DataStore(Protocol):
     def new_pickup_id(self) -> str: ...
 
     def commit(
-        self, pickups: list[Pickup], bags: list[Bag], routes: list[RouteStop] | None = None
+        self,
+        pickups: list[Pickup],
+        bags: list[Bag],
+        routes: list[RouteStop] | None = None,
+        records: list[WasteRecord] | None = None,
     ) -> None:
-        """Write these pickups, bags and route mirrors together in one atomic batch."""
+        """Write pickups, bags, route mirrors and waste records in one atomic batch."""
         ...
 
 
@@ -73,6 +86,9 @@ class FirestoreDataStore:
 
     def _routes(self):  # noqa: ANN202
         return self._db.collection(ROUTES)
+
+    def _records(self):  # noqa: ANN202
+        return self._db.collection(WASTE_RECORDS)
 
     # --- households ---
     def create_household(self, household: Household) -> bool:
@@ -121,6 +137,22 @@ class FirestoreDataStore:
         bags = [Bag(code=snap.id, **snap.to_dict()) for snap in query.stream()]
         return sorted(bags, key=lambda bag: (bag.issuedAt, bag.code))
 
+    def list_bags_by_status(self, status: BagStatus) -> list[Bag]:
+        query = self._bags().where(filter=FieldFilter("status", "==", status.value))
+        return [Bag(code=snap.id, **snap.to_dict()) for snap in query.stream()]
+
+    # --- waste records ---
+    def get_waste_records(self, codes: list[str]) -> dict[str, WasteRecord]:
+        refs = [self._records().document(code) for code in dict.fromkeys(codes)]
+        return {
+            snap.id: WasteRecord(bagCode=snap.id, **snap.to_dict())
+            for snap in self._db.get_all(refs)
+            if snap.exists
+        }
+
+    def save_waste_record(self, record: WasteRecord) -> None:
+        self._records().document(record.bagCode).set(to_doc(record, "bagCode"))
+
     # --- pickups ---
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         snap = self._pickups().document(pickup_id).get()
@@ -157,7 +189,11 @@ class FirestoreDataStore:
 
     # --- batch ---
     def commit(
-        self, pickups: list[Pickup], bags: list[Bag], routes: list[RouteStop] | None = None
+        self,
+        pickups: list[Pickup],
+        bags: list[Bag],
+        routes: list[RouteStop] | None = None,
+        records: list[WasteRecord] | None = None,
     ) -> None:
         batch = self._db.batch()
         for pickup in pickups:
@@ -166,4 +202,6 @@ class FirestoreDataStore:
             batch.set(self._bags().document(bag.code), to_doc(bag, "code"))
         for route in routes or []:
             batch.set(self._routes().document(route.pickupId), to_doc(route, "pickupId"))
+        for record in records or []:
+            batch.set(self._records().document(record.bagCode), to_doc(record, "bagCode"))
         batch.commit()

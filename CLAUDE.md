@@ -17,9 +17,11 @@ Mandatory tech: **Firebase, Firestore, Cloud Run, Gemini**. Everything runs on G
 | Runtime service account | `ecotrace-backend@ecotrace-9e406.iam.gserviceaccount.com` — project roles `roles/datastore.user`, `roles/firebaseauth.admin`; custom role `projects/ecotrace-9e406/roles/ecotraceTokenSigner` (only `iam.serviceAccounts.signBlob`) bound on **itself only** for custom-token signing. Grant new roles per step, least privilege, with user approval. |
 | Firestore | `(default)`, Native mode, `asia-south1`; schema + state machine in `docs/DATA_MODEL.md`; rules: clients read only their own `users` / `households` / `bags` / `pickups` (residents) and `routes` (collectors), no client writes |
 | Firebase Hosting | https://ecotrace-9e406.web.app (static export from `frontend/out`) |
+| Photo bucket | `gs://ecotrace-9e406-bag-photos` (asia-south1, private, public access prevention, lifecycle: delete after 30 days); SA has objectCreator + objectViewer on it only |
+| Gemini | `gemini-3.5-flash` on Vertex AI `asia-south1`, `thinking_level=minimal`; SA has `roles/aiplatform.user` |
 | Firebase web app | `EcoTrace Web` — `1:55962094566:web:eff857d7171aac9606e427` |
 
-Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins), `GOOGLE_CLOUD_PROJECT`, `DEMO_RATE_LIMIT_PER_MIN` (default 10).
+Backend env vars: `ALLOWED_ORIGINS` (comma-separated CORS origins), `GOOGLE_CLOUD_PROJECT`, `DEMO_RATE_LIMIT_PER_MIN` (default 10), `GEMINI_MODEL`, `GEMINI_LOCATION`, `GEMINI_THINKING_LEVEL`, `GEMINI_TIMEOUT_S`, `ANALYZE_RATE_LIMIT_PER_MIN` (default 10), `PHOTO_BUCKET` (all set by `deploy-backend.sh`).
 Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled by `deploy-frontend.sh`; see `frontend/.env.example`).
 
 ## Auth & roles model
@@ -36,6 +38,9 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - **All status changes go through `app/transitions.py`** (`advance_pickup` / `advance_bag`). Add new transitions there; never set `status` directly.
 - **Collectors never read `pickups` from the client** (bag codes would leak). Every collector-side pickup change also writes the `routes/{pickupId}` mirror in the same batch (`collector._commit`, `services.route_stop`).
 - Collector logic: `app/collector.py` (views hide codes until scanned); routes: `app/routes/collector.py`. Demo-only endpoints check `is_demo_uid()` on the server.
+- **Gemini** lives in `app/ai/classifier.py` (`GeminiClassifier`, system prompt, response schema, `parse_ai_output`, one retry). Never trust model output: always go through `parse_ai_output`. Tests mock the SDK (`tests/test_classifier.py`) or use `FakeClassifier`.
+- **Operator flow** in `app/operator.py`: `analyze` writes a server-side DRAFT `wasteRecords/{code}`; `confirm` computes `edited`/`editCount` from that draft (the client never sends `aiResult`). Keep both `aiResult` and `finalItems`. Photos via `app/photos.py` (`GcsPhotoStore`, create-only); taxonomy only in `app/taxonomy.py`.
+- Demo operator: `ensure_demo_operator_data()` queues one delivered demo pickup (2 bags) only when the warehouse queue is empty.
 - **No Firestore transactions (demo scope).** Validate, then write all related docs in **one batch** (`DataStore.commit`). Uniqueness via `create()` (households by uid, bags by code).
 - Dates for pickups are Colombo calendar days (`app/clock.py`, fixed UTC+5:30); store `"YYYY-MM-DD"`.
 - `statusHistory` entries use `clock.now()` (Firestore forbids `SERVER_TIMESTAMP` inside arrays).
@@ -52,6 +57,8 @@ Frontend build-time env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_FIREBASE_*` (filled
 - Query-param pages (static export): call `useSearchParams()` inside a `<Suspense>` boundary (e.g. `/collector/pickup?id=`).
 - QR scanning: `components/collector/ScanPanel.tsx` (`@yudiel/react-qr-scanner`). Its zxing wasm is self-hosted at `/vendor/zxing_reader.wasm`, copied from node_modules by `npm run build`/`dev` (`scripts/copy-zxing-wasm.mjs`, git-ignored). Keep camera constraints soft (`ideal` only): the library's defaults require ≥640px height and fail on 480p cameras (`overconstrained`).
 - Effects that fetch must set state in the promise callback (lint rule `react-hooks/set-state-in-effect`).
+- Operator pages wrap content in `OperatorPage` (guard + taxonomy + zone names). Photos are resized with `lib/images.ts` before upload; uploads use `apiFetch(..., { form })`. Category colors are `--cat-*` tokens (`CategoryChip`). Demo sample photos live in `public/samples/` (copies of `docs/sample-images/`, see its CREDITS.md).
+- **Static export + Hosting:** `npm run build` runs `scripts/flatten-rsc.mjs` (postbuild), which copies Next.js 16's nested route payloads (`__next.a/b.txt`) to the dotted names the client requests (`__next.a.b.txt`). Without it every client navigation 404s and falls back to a full page load.
 - Map API error `detail` codes to friendly text (`residentErrorMessage`).
 
 ## Frontend UI conventions
@@ -156,6 +163,8 @@ docker build -t ecotrace-backend . && docker run -p 8080:8080 ecotrace-backend
 firebase deploy --only firestore         # Firestore security rules + composite indexes
 backend/.venv/Scripts/python scripts/seed_demo_users.py   # create/repair the 4 demo users + demo resident data (idempotent)
 ```
+
+Gemini failure-path test without touching production: `EXTRA_DEPLOY_FLAGS="--tag failtest --no-traffic" GEMINI_TIMEOUT_S=0.001 ./scripts/deploy-backend.sh`, call `https://failtest---<service-url>`, then remove the tag and **redeploy normally before** deleting the test revision (the newest revision can't be deleted, and `--to-latest` would send traffic to it).
 
 Local seeding uses your ADC (`gcloud auth application-default login`, quota project `ecotrace-9e406`).
 POSTs to Cloud Run must carry a body/Content-Length (Google's front end returns 411 otherwise); `apiFetch` always sends JSON.

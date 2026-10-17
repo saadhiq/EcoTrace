@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.taxonomy import Category, HazardFlag, SegregationQuality
+
 
 class Role(StrEnum):
     RESIDENT = "resident"
@@ -150,3 +152,70 @@ class RouteStop(BaseModel):
 def to_doc(model: BaseModel, id_field: str) -> dict[str, Any]:
     """Firestore document data: the model minus its id field (the doc id)."""
     return model.model_dump(mode="python", exclude={id_field})
+
+
+# --- Warehouse / AI classification ---
+
+
+class WasteItem(BaseModel):
+    """One item in a bag, as confirmed by the operator."""
+
+    name: str = Field(min_length=1, max_length=80)
+    category: Category
+    material: str = Field(default="", max_length=60)
+    productType: str = Field(default="", max_length=60)
+    brand: str | None = Field(default=None, max_length=60)
+    quantity: int = Field(default=1, ge=1, le=999)
+    recyclable: bool = False
+
+
+class AiItem(WasteItem):
+    """An item as returned by Gemini (adds the model's confidence)."""
+
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class AiResult(BaseModel):
+    """Gemini's structured output for one bag (validated and normalised)."""
+
+    items: list[AiItem]
+    segregationQuality: SegregationQuality
+    hazardFlags: list[HazardFlag] = Field(default_factory=list)
+    notes: str = ""
+
+
+class TokenUsage(BaseModel):
+    prompt: int = 0
+    output: int = 0
+    thoughts: int = 0
+    total: int = 0
+
+
+class WasteRecordStatus(StrEnum):
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
+
+
+class WasteRecord(BaseModel):
+    """wasteRecords/{bagCode}: AI result kept next to the human-reviewed items."""
+
+    bagCode: str
+    householdId: str
+    pickupId: str | None
+    status: WasteRecordStatus
+    photoPaths: list[str] = Field(default_factory=list)
+    aiResult: AiResult | None = None
+    aiError: str | None = None
+    model: str | None = None
+    latencyMs: int | None = None
+    tokenUsage: TokenUsage | None = None
+    analyzedAt: datetime | None = None
+    # Set on confirm:
+    finalItems: list[WasteItem] = Field(default_factory=list)
+    segregationQuality: SegregationQuality | None = None
+    hazardFlags: list[HazardFlag] = Field(default_factory=list)
+    edited: bool = False
+    editCount: int = 0
+    source: str | None = None  # ai | ai_edited | manual
+    operatorUid: str | None = None
+    processedAt: datetime | None = None

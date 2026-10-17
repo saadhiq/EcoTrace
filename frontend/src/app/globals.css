@@ -54,6 +54,29 @@
   --text-xl: 1.5rem;
   --text-2xl: 2rem;
 
+
+  /* Waste categories (text on soft tint) */
+  --cat-plastic: #1d5fbf;
+  --cat-plastic-soft: #e4edfb;
+  --cat-paper_cardboard: #8a5a1f;
+  --cat-paper_cardboard-soft: #f6ecdc;
+  --cat-glass: #0f7c80;
+  --cat-glass-soft: #def4f3;
+  --cat-metal: #4a5560;
+  --cat-metal-soft: #e8ecef;
+  --cat-organic: #3f7a1f;
+  --cat-organic-soft: #e7f3dc;
+  --cat-e_waste: #6d3fc0;
+  --cat-e_waste-soft: #efe8fb;
+  --cat-textile: #b03a7a;
+  --cat-textile-soft: #fbe6f1;
+  --cat-hazardous: #b42318;
+  --cat-hazardous-soft: #fdecea;
+  --cat-other: #5b6b62;
+  --cat-other-soft: #eef2ef;
+  --color-warning: #a15c00;
+  --color-warning-soft: #fdf0dc;
+
   --topbar-height: 60px;
   --content-max: 1080px;
 }
@@ -84,6 +107,28 @@
     --role-operator-soft: #3a2a12;
     --role-admin: #b794f6;
     --role-admin-soft: #2c2142;
+
+
+    --cat-plastic: #6ea8fe;
+    --cat-plastic-soft: #1a2a44;
+    --cat-paper_cardboard: #e0b179;
+    --cat-paper_cardboard-soft: #3a2c19;
+    --cat-glass: #5fd0d3;
+    --cat-glass-soft: #143536;
+    --cat-metal: #b5c0ca;
+    --cat-metal-soft: #2a3036;
+    --cat-organic: #8fd16a;
+    --cat-organic-soft: #20321a;
+    --cat-e_waste: #b794f6;
+    --cat-e_waste-soft: #2c2142;
+    --cat-textile: #f08cc3;
+    --cat-textile-soft: #3d1f30;
+    --cat-hazardous: #f97066;
+    --cat-hazardous-soft: #3a1d1a;
+    --cat-other: #9aaba1;
+    --cat-other-soft: #1f2823;
+    --color-warning: #f5b04c;
+    --color-warning-soft: #3a2a12;
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
     --shadow-md: 0 4px 16px rgb(0 0 0 / 0.35);

@@ -9,6 +9,7 @@ from app.auth import get_current_user, get_identity, get_user_store, require_reg
 from app.clock import Clock
 from app.demo import (
     ensure_demo_collector_data,
+    ensure_demo_operator_data,
     ensure_demo_resident_data,
     ensure_demo_user,
     is_demo_uid,
@@ -121,5 +122,7 @@ def demo_sign_in(
         ensure_demo_resident_data(store, clock)
     elif demo_role == Role.COLLECTOR:
         ensure_demo_collector_data(store, users, clock)
+    elif demo_role == Role.OPERATOR:
+        ensure_demo_operator_data(store, clock)
     logger.info("demo sign-in role=%s client=%s", demo_role.value, client)
     return DemoTokenResponse(token=identity.create_custom_token(uid), role=demo_role)

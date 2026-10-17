@@ -87,6 +87,35 @@ A **code-free mirror** of each pickup once a collector accepts it, so the collec
 | `bagCount`, `scannedCount` | int |
 | `updatedAt` | timestamp |
 
+### `wasteRecords/{bagCode}`
+One per bag: Gemini's classification kept **next to** the operator-reviewed items, so the difference can be
+used to measure AI accuracy (benchmark step).
+
+| Field | Type | Notes |
+|---|---|---|
+| `householdId`, `pickupId` | string | |
+| `status` | `draft` \| `confirmed` | `analyze` writes a **draft** server-side; `confirm` finalises it |
+| `photoPaths` | string[] | `gs://ecotrace-9e406-bag-photos/bags/{code}/…` (private bucket, deleted after 30 days) |
+| `aiResult` | object \| null | Gemini's structured output, validated and normalised (see below). `null` for manual entry |
+| `aiError` | `unavailable` \| `invalid_output` \| null | why the AI result is missing, if it is |
+| `model`, `latencyMs`, `tokenUsage` | string, int, `{prompt, output, thoughts, total}` | for the benchmark and the UI |
+| `finalItems` | `WasteItem[]` | after human review |
+| `segregationQuality` | `good` \| `mixed` \| `poor` | final |
+| `hazardFlags` | string[] | final, from the taxonomy |
+| `edited` | bool | computed **server-side**: any difference from `aiResult` (always true for manual) |
+| `editCount` | int | items added + removed + changed (name, category, material, productType, brand, quantity, recyclable), +1 if segregation quality changed, +1 if hazard flags changed |
+| `source` | `ai` \| `ai_edited` \| `manual` | manual records are excluded from accuracy numbers |
+| `operatorUid`, `analyzedAt`, `processedAt` | | |
+
+**`WasteItem`**: `{ name, category, material, productType, brand (nullable), quantity, recyclable }`; AI items add
+`confidence` (0–1). **Taxonomy** (fixed, `backend/app/taxonomy.py`, served at `GET /taxonomy`):
+categories `plastic, paper_cardboard, glass, metal, organic, e_waste, textile, hazardous, other`;
+hazard flags `sharp, battery, chemical, medical, broken_glass, flammable`.
+
+The browser never sends `aiResult`: each confirmed row carries `aiIndex` (which AI item it came from, or
+`null` if added), and the server compares against the stored draft. Client access to `wasteRecords` is denied
+by the rules; residents will see insights through the API later.
+
 ## Status state machine
 
 Defined once in `backend/app/transitions.py`; every endpoint changes status through `advance_pickup` / `advance_bag`, which reject anything else with `409 invalid_transition` and append to `statusHistory`.
@@ -101,7 +130,7 @@ Defined once in `backend/app/transitions.py`; every endpoint changes status thro
 | `assigned` | `missed` | collector, with a reason, **before any bag is scanned** |
 | `assigned` | `cancelled` | resident, **only before any bag is scanned** |
 | `collected` | `delivered` | automatically, when every attached bag reaches `at_warehouse` |
-| `delivered` | `processed` | warehouse (next step) |
+| `delivered` | `processed` | operator confirms the pickup's **last** attached bag |
 | `cancelled`, `missed`, `processed` | — | final |
 
 **Bag**
@@ -112,7 +141,7 @@ Defined once in `backend/app/transitions.py`; every endpoint changes status thro
 | `scheduled` | `collected` | scanned at the door |
 | `scheduled` | `issued` | pickup cancelled or missed, or bag left out of a partial completion (detached: `pickupId = null`) |
 | `collected` | `at_warehouse` | scanned at the warehouse handover |
-| `at_warehouse` | `processed` | warehouse (next step) |
+| `at_warehouse` | `processed` | operator confirms the bag's items (`POST /operator/bags/{code}/confirm`) |
 
 ## Rules enforced by the API
 
@@ -126,6 +155,19 @@ Defined once in `backend/app/transitions.py`; every endpoint changes status thro
 | Cancel only while `requested` / `assigned` and before any bag is scanned | 409 `not_cancellable` |
 | Only the owner can see or cancel a pickup | 404 `pickup_not_found` |
 | One household per resident | 409 `household_exists` |
+
+### Operator rules
+
+| Rule | Error |
+|---|---|
+| Analyze / confirm only bags at `at_warehouse` | 409 `not_at_warehouse` / `already_processed` |
+| 1–3 photos, ≤ 4 MB each, JPEG/PNG/WebP checked by file header | 422 `photo_count` / 413 `photo_too_large` / 415 `unsupported_photo_type` |
+| At most 10 analyses per operator per minute (Gemini cost guard) | 429 `rate_limited` |
+| Gemini timed out or failed after one retry | 504 `ai_unavailable` (draft keeps the photos; manual entry still works) |
+| Gemini returned unusable output | 502 `ai_invalid_output` |
+| Photo storage failed | 503 `photo_upload_failed` |
+| 1–50 final items, categories/flags from the taxonomy, valid `aiIndex` | 422 |
+| Queue shows bag code, zone and pickup date only — no resident name, address or phone | — |
 
 ### Collector rules
 

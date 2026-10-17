@@ -8,7 +8,7 @@ from app.clock import COLOMBO, Clock, local_today
 from app.identity import IdentityAdmin
 from app.models import CANCELLABLE_PICKUP_STATUSES, BagStatus, PickupStatus, Role, TimeSlot
 from app.store import DataStore
-from app.transitions import INACTIVE_PICKUP_STATUSES
+from app.transitions import INACTIVE_PICKUP_STATUSES, advance_bag, advance_pickup
 from app.users import UserStore
 
 
@@ -155,4 +155,43 @@ def ensure_demo_collector_data(store: DataStore, users: UserStore, clock: Clock)
         by=SEED,
         demo_override=True,
     )
+    return pickup.id
+
+
+def ensure_demo_operator_data(store: DataStore, clock: Clock) -> str | None:
+    """Make sure the warehouse queue has at least one bag for the demo operator.
+
+    Bounded: only when the queue is empty, creates ONE demo-resident pickup for
+    today with 2 fresh bags and walks it through the state machine to
+    `delivered` (collected by the demo collector). Returns the new pickup id.
+    """
+    if store.list_bags_by_status(BagStatus.AT_WAREHOUSE):
+        return None
+    ensure_demo_resident_data(store, clock)
+    resident = DEMO_ACCOUNTS[Role.RESIDENT].uid
+    collector = DEMO_ACCOUNTS[Role.COLLECTOR].uid
+    household = store.get_household(resident)
+    assert household is not None
+    fresh = services.issue_bags(store, clock, household, DEMO_COLLECTOR_BAGS, by=SEED)
+    pickup = services.schedule_pickup(
+        store,
+        clock,
+        resident,
+        pickup_date=local_today(clock),
+        time_slot=TimeSlot.MORNING,
+        bag_codes=[bag.code for bag in fresh],
+        notes="Demo pickup for the warehouse queue.",
+        by=SEED,
+        demo_override=True,
+    )
+    now = clock.now()
+    pickup = advance_pickup(pickup, PickupStatus.ASSIGNED, by=SEED, clock=clock, collectorUid=collector, assignedAt=now)
+    bags = [
+        advance_bag(bag, BagStatus.COLLECTED, by=SEED, clock=clock, collectorUid=collector)
+        for bag in services.attached_bags(store, pickup)
+    ]
+    pickup = advance_pickup(pickup, PickupStatus.COLLECTED, by=SEED, clock=clock, collectedAt=now)
+    bags = [advance_bag(bag, BagStatus.AT_WAREHOUSE, by=SEED, clock=clock) for bag in bags]
+    pickup = advance_pickup(pickup, PickupStatus.DELIVERED, by=SEED, clock=clock, deliveredAt=now)
+    store.commit([pickup], bags, [services.route_stop(pickup, household, bags, clock)])
     return pickup.id

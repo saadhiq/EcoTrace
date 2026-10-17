@@ -6,17 +6,18 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import allowed_origins, demo_rate_limit
+from app.config import allowed_origins, analyze_rate_limit, demo_rate_limit
 from app.errors import DomainError
 from app.ratelimit import RateLimiter
-from app.routes import auth, collector, resident
+from app.routes import auth, collector, meta, operator, resident
 
 logging.basicConfig(level=logging.INFO)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="EcoTrace API", version="0.3.0")
+    app = FastAPI(title="EcoTrace API", version="0.4.0")
     app.state.demo_limiter = RateLimiter(limit=demo_rate_limit(), window_seconds=60)
+    app.state.analyze_limiter = RateLimiter(limit=analyze_rate_limit(), window_seconds=60)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins(),
@@ -33,9 +34,11 @@ def create_app() -> FastAPI:
         """Liveness check used by Cloud Run and the frontend status badge."""
         return {"status": "ok"}
 
+    app.include_router(meta.router)
     app.include_router(auth.router)
     app.include_router(resident.router)
     app.include_router(collector.router)
+    app.include_router(operator.router)
     return app
 
 

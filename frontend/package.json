@@ -7,6 +7,7 @@
     "dev": "next dev",
     "prebuild": "node scripts/copy-zxing-wasm.mjs",
     "build": "next build",
+    "postbuild": "node scripts/flatten-rsc.mjs",
     "start": "next start",
     "lint": "eslint"
   },

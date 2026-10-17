@@ -14,6 +14,8 @@ type Options = {
   /** Firebase ID token; sent as `Authorization: Bearer`. */
   token?: string;
   body?: unknown;
+  /** Multipart upload (e.g. photos). The browser sets the Content-Type boundary. */
+  form?: FormData;
 };
 
 export async function apiFetch<T>(path: string, options: Options = {}): Promise<T> {
@@ -21,8 +23,10 @@ export async function apiFetch<T>(path: string, options: Options = {}): Promise<
   const headers: Record<string, string> = {};
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
-  let body: string | undefined;
-  if (method === "POST") {
+  let body: string | FormData | undefined;
+  if (options.form) {
+    body = options.form;
+  } else if (method === "POST") {
     // Always send a body: Google's front end rejects POSTs without Content-Length.
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(options.body ?? {});

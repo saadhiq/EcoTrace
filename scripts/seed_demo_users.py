@@ -1,5 +1,6 @@
 """Create or repair the four passwordless demo accounts, the demo resident's
-household data and the demo collector's zones + a pickup for today
+household data, the demo collector's zones + a pickup for today, and a bag
+in the warehouse queue for the demo operator
 (idempotent and bounded, never deletes anything).
 
 Uses the same logic as POST /auth/demo/{role}. Runs with your Application
@@ -21,6 +22,7 @@ from app.clock import SystemClock  # noqa: E402
 from app.demo import (  # noqa: E402
     DEMO_ACCOUNTS,
     ensure_demo_collector_data,
+    ensure_demo_operator_data,
     ensure_demo_resident_data,
     ensure_demo_user,
 )
@@ -45,6 +47,8 @@ def main() -> None:
     ensure_demo_resident_data(store, clock)
     created = ensure_demo_collector_data(store, users, clock)
     print(f"  demo collector: {'new pickup ' + created if created else 'already has a pickup today'}")
+    queued = ensure_demo_operator_data(store, clock)
+    print(f"  demo operator: {'queued pickup ' + queued if queued else 'queue already has bags'}")
     bags = store.list_bags(resident)
     pickups = store.list_pickups(resident)
     print(f"  demo household: {len(bags)} bags, pickups: "

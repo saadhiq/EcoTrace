@@ -5,7 +5,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.identity import IdentityUser, InvalidTokenError
-from app.models import Bag, Household, Pickup, PickupStatus, Role, RouteStop, UserProfile
+from app.models import (
+    Bag,
+    BagStatus,
+    Household,
+    Pickup,
+    PickupStatus,
+    Role,
+    RouteStop,
+    UserProfile,
+    WasteRecord,
+)
 
 
 class FixedClock:
@@ -27,6 +37,7 @@ class FakeDataStore:
         self.bags: dict[str, Bag] = {}
         self.pickups: dict[str, Pickup] = {}
         self.routes: dict[str, RouteStop] = {}
+        self.records: dict[str, WasteRecord] = {}
         self.commits = 0
         self._ids = itertools.count(1)
         # Codes create_bags() should treat as already taken (collision tests).
@@ -61,6 +72,15 @@ class FakeDataStore:
         bags = [b for b in self.bags.values() if b.householdId == household_id]
         return sorted(bags, key=lambda b: (b.issuedAt, b.code))
 
+    def list_bags_by_status(self, status: BagStatus) -> list[Bag]:
+        return [b for b in self.bags.values() if b.status == status]
+
+    def get_waste_records(self, codes: list[str]) -> dict[str, WasteRecord]:
+        return {c: self.records[c] for c in codes if c in self.records}
+
+    def save_waste_record(self, record: WasteRecord) -> None:
+        self.records[record.bagCode] = record
+
     def get_pickup(self, pickup_id: str) -> Pickup | None:
         return self.pickups.get(pickup_id)
 
@@ -88,7 +108,11 @@ class FakeDataStore:
         return f"pickup-{next(self._ids)}"
 
     def commit(
-        self, pickups: list[Pickup], bags: list[Bag], routes: list[RouteStop] | None = None
+        self,
+        pickups: list[Pickup],
+        bags: list[Bag],
+        routes: list[RouteStop] | None = None,
+        records: list[WasteRecord] | None = None,
     ) -> None:
         self.commits += 1
         for pickup in pickups:
@@ -97,6 +121,8 @@ class FakeDataStore:
             self.bags[bag.code] = bag
         for route in routes or []:
             self.routes[route.pickupId] = route
+        for record in records or []:
+            self.records[record.bagCode] = record
 
 
 class FakeIdentity:
@@ -162,3 +188,56 @@ class FakeUserStore:
 
     def set_zones(self, uid: str, zones: list[str]) -> None:
         self.docs[uid] = self.docs[uid].model_copy(update={"zones": list(zones)})
+
+
+# --- warehouse / AI fakes ---
+
+
+class FakeClassifier:
+    """Returns `result`, or raises `error` (an AiError) when set."""
+
+    model = "fake-gemini"
+
+    def __init__(self) -> None:
+        from app.models import AiItem, AiResult
+
+        self.calls: list[list[tuple[bytes, str]]] = []
+        self.error: Exception | None = None
+        self.result = AiResult(
+            items=[
+                AiItem(name="plastic bottle", category="plastic", material="PET", productType="drink bottle",
+                       brand=None, quantity=3, recyclable=True, confidence=0.95),
+                AiItem(name="aluminium can", category="metal", material="aluminium", productType="drink can",
+                       brand="Lion", quantity=2, recyclable=True, confidence=0.9),
+                AiItem(name="food wrapper", category="plastic", material="film", productType="wrapper",
+                       brand=None, quantity=1, recyclable=False, confidence=0.4),
+            ],
+            segregationQuality="mixed",
+            hazardFlags=[],
+            notes="Mostly drink containers.",
+        )
+
+    def classify(self, images: list[tuple[bytes, str]]):  # noqa: ANN201
+        from app.ai.classifier import Classification
+        from app.models import TokenUsage
+
+        self.calls.append(images)
+        if self.error is not None:
+            raise self.error
+        return Classification(
+            result=self.result, model=self.model, latency_ms=1234,
+            token_usage=TokenUsage(prompt=1300, output=150, thoughts=0, total=1450), raw={},
+        )
+
+
+class FakePhotoStore:
+    def __init__(self) -> None:
+        self.saved: list[str] = []
+        self.fail = False
+
+    def save(self, bag_code: str, photos: list, now: datetime) -> list[str]:  # noqa: ANN001
+        if self.fail:
+            raise RuntimeError("storage down")
+        paths = [f"gs://test-bucket/bags/{bag_code}/{len(self.saved) + i}.jpg" for i in range(len(photos))]
+        self.saved.extend(paths)
+        return paths

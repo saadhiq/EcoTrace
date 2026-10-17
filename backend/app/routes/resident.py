@@ -11,7 +11,6 @@ from app.clock import Clock
 from app.deps import get_clock, get_store
 from app.models import Bag, CurrentUser, Household, Pickup, Role, TimeSlot
 from app.store import DataStore
-from app.zones import ZONES, Zone
 
 router = APIRouter()
 resident = require_role(Role.RESIDENT)
@@ -48,11 +47,6 @@ class PickupCreate(BaseModel):
     timeSlot: TimeSlot
     bagCodes: list[str] = Field(min_length=1, max_length=services.MAX_BAGS_PER_PICKUP)
     notes: str = Field(default="", max_length=280)
-
-
-@router.get("/zones", response_model=list[Zone])
-def zones() -> list[Zone]:
-    return ZONES
 
 
 @router.post("/households", response_model=HouseholdCreated, status_code=status.HTTP_201_CREATED)
