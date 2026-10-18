@@ -7,7 +7,7 @@ Guidance for Claude (and humans) working in this repo.
 > production data (seed, backfill, cleanup scripts) — **unless the user explicitly asks for that specific action**.
 > Local code changes, tests and docs are fine. Keep the free tier: Cloud Run stays at `min-instances 0`.
 > Exceptions so far (each explicitly requested): 2026-10-17 one Hosting-only deploy of the landing page
-> (`deploy-frontend.sh` = `firebase deploy --only hosting`), with its live smoke test + `isTest` cleanup. The freeze is back in force.
+> (`deploy-frontend.sh` = `firebase deploy --only hosting`), with its live smoke test + `isTest` cleanup; 2026-10-18 `grant_admin.py` for the team's real admin account (shared with judges privately, never in the repo). The freeze is back in force.
 
 ## Project
 
